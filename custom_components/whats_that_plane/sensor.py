@@ -304,6 +304,7 @@ class WhatsThatPlaneSensor(CoordinatorEntity, SensorEntity):
             "estimated_arrival_delay_mins": estimated_arrival_delay_mins,
             "arrival_delay_mins": arrival_delay_mins,
 
+            "last_seen_timestamp": last_seen_timestamp,
             "last_seen_time_formatted": last_seen_time_formatted,
         }
 
