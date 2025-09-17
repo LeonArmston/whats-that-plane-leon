@@ -227,6 +227,7 @@ class WhatsThatPlaneSensor(CoordinatorEntity, SensorEntity):
         # Last seen time for historic flights
         last_seen_time_formatted = None
         last_seen_timestamp = flight_info.get("last_seen")
+        last_seen_timestamp_formatted =  int(last_seen_timestamp) if last_seen_timestamp else None
         if last_seen_timestamp:
             time_diff = datetime.now(timezone.utc) - datetime.fromtimestamp(last_seen_timestamp, tz=timezone.utc)
 
@@ -304,7 +305,7 @@ class WhatsThatPlaneSensor(CoordinatorEntity, SensorEntity):
             "estimated_arrival_delay_mins": estimated_arrival_delay_mins,
             "arrival_delay_mins": arrival_delay_mins,
 
-            "last_seen_timestamp": last_seen_timestamp,
+            "last_seen_timestamp": last_seen_timestamp_formatted,
             "last_seen_time_formatted": last_seen_time_formatted,
         }
 
