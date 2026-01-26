@@ -9,7 +9,7 @@
     "FlightRadarAPI==1.4.0",
     "dpath==2.2.0",
     "geopy==2.4.1",
-    "pycountry==23.12.11"
+    "pycountry==24.6.1"
   ],
   "version": "3.0.2",
   "iot_class": "cloud_polling"
