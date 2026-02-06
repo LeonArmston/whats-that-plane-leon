@@ -183,6 +183,16 @@ class WhatsThatPlaneSensor(CoordinatorEntity, SensorEntity):
         destination_2_letter_code = COUNTRY_CODE_MAP.get(destination_country_code, destination_country_code)
         origin_country_code_flagsapi = self._get_country_code_2_letter(origin_country_code)
         destination_country_code_flagsapi = self._get_country_code_2_letter(destination_country_code)
+
+        # Extract airline codes
+        airline_icao = dpath.util.get(flight, AIRLINE_ICAO, default=None)
+        airline_iata = dpath.util.get(flight, AIRLINE_IATA, default=None)
+        
+        # Generate airline logo link
+        airline_logo_link = None
+        if airline_icao:
+            airline_logo_link = f"https://www.flightradar24.com/static/images/data/operators/{airline_icao}_logo0.png"
+        
         flightradar_link = None
         if flight_id:
             if callsign == "Blocked":
@@ -252,8 +262,9 @@ class WhatsThatPlaneSensor(CoordinatorEntity, SensorEntity):
             "flight_number": flight_number,
             "flightradar_link": flightradar_link,
             "airline_name": dpath.util.get(flight, AIRLINE_NAME, default=None),
-            "airline_iata": dpath.util.get(flight, AIRLINE_IATA, default=None),
-            "airline_icao": dpath.util.get(flight, AIRLINE_ICAO, default=None),
+            "airline_iata": airline_iata,
+            "airline_icao": airline_icao,
+            "airline_logo_link": airline_logo_link,
             "aircraft_model": dpath.util.get(flight, AIRCRAFT_MODEL, default=None),
             "aircraft_type": dpath.util.get(flight, AIRCRAFT_TYPE, default=None),
             "aircraft_registration": dpath.util.get(flight, AIRCRAFT_REGISTRATION, default=None),
