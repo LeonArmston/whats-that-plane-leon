@@ -13,6 +13,8 @@ CALLSIGN = 'identification/callsign'
 FLIGHT_ID = 'identification/id'
 FLIGHT_NUMBER = 'identification/number/default'
 AIRLINE_NAME = 'airline/name'
+AIRLINE_IATA = 'airline/code/iata'
+AIRLINE_ICAO = 'airline/code/icao'
 AIRCRAFT_MODEL = 'aircraft/model/text'
 AIRCRAFT_TYPE = 'aircraft/model/code'
 AIRCRAFT_REGISTRATION = 'aircraft/registration'
@@ -250,6 +252,8 @@ class WhatsThatPlaneSensor(CoordinatorEntity, SensorEntity):
             "flight_number": flight_number,
             "flightradar_link": flightradar_link,
             "airline_name": dpath.util.get(flight, AIRLINE_NAME, default=None),
+            "airline_iata": dpath.util.get(flight, AIRLINE_IATA, default=None),
+            "airline_icao": dpath.util.get(flight, AIRLINE_ICAO, default=None),
             "aircraft_model": dpath.util.get(flight, AIRCRAFT_MODEL, default=None),
             "aircraft_type": dpath.util.get(flight, AIRCRAFT_TYPE, default=None),
             "aircraft_registration": dpath.util.get(flight, AIRCRAFT_REGISTRATION, default=None),
