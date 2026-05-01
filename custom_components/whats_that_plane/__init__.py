@@ -96,8 +96,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await register_lovelace_resource(
             hass, f"/local/community/{DOMAIN}/whats-that-plane-map.js"
         )
-        if hass.data.get("whats_that_plane_listener"):
-            hass.data.pop("whats_that_plane_listener")()
+
+        hass.data.pop("whats_that_plane_listener", None)
 
     if hass.state is CoreState.running:
         await _register_resource()
@@ -125,8 +125,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await async_remove_lovelace_resource(hass, f"/local/community/{DOMAIN}/whats-that-plane-map.js")
         await hass.async_add_executor_job(remove_frontend_files, hass)
 
-    if hass.data.get("whats_that_plane_listener"):
-        hass.data.pop("whats_that_plane_listener")()
+
+    if listener := hass.data.pop("whats_that_plane_listener", None):
+        listener()
 
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
@@ -167,6 +168,7 @@ class WhatsThatPlaneCoordinator(DataUpdateCoordinator):
 
         update_seconds = self._config.get("update_interval", 60)
         self.fr_api = FlightRadar24API()
+        self.scraper = None                           
         self.tracked_flights = {}
         self.historic_flights = []
 
@@ -176,6 +178,20 @@ class WhatsThatPlaneCoordinator(DataUpdateCoordinator):
             name=DOMAIN,
             update_interval=timedelta(seconds=update_seconds),
         )
+
+    def _get_flight_details_scraper(self, flight_id: str) -> dict:
+        import cloudscraper
+        if self.scraper is None:
+            self.scraper = cloudscraper.create_scraper()
+            self.scraper.get("https://www.flightradar24.com/")
+        
+        url = f"https://data-live.flightradar24.com/clickhandler/?flight={flight_id}"
+        response = self.scraper.get(url, timeout=10)
+        if response.status_code == 403:
+            self.scraper.get("https://www.flightradar24.com/")
+            response = self.scraper.get(url, timeout=10)
+        response.raise_for_status()
+        return response.json()
 
     @property
     def config(self):
@@ -242,7 +258,7 @@ class WhatsThatPlaneCoordinator(DataUpdateCoordinator):
                     if flight_id not in self.tracked_flights:
                         _LOGGER.debug(f"New flight in FOV: {flight_id}")
                         try:
-                            flight_details = await self.hass.async_add_executor_job(self.fr_api.get_flight_details, flight)
+                            flight_details = await self.hass.async_add_executor_job(self._get_flight_details_scraper, flight.id)
                         except Exception as e:
                             _LOGGER.warning(f"Could not fetch details for {flight_id}: {e}")
                             flight_details = {}
