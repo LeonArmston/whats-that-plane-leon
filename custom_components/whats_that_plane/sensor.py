@@ -17,6 +17,7 @@ AIRLINE_IATA = 'airline/code/iata'
 AIRLINE_ICAO = 'airline/code/icao'
 AIRCRAFT_MODEL = 'aircraft/model/text'
 AIRCRAFT_TYPE = 'aircraft/model/code'
+AIRCRAFT_ICAO = 'aircraft/hex'
 AIRCRAFT_REGISTRATION = 'aircraft/registration'
 LARGE_AIRCRAFT_IMAGE = 'aircraft/images/large/0/src'
 MEDIUM_AIRCRAFT_IMAGE = 'aircraft/images/medium/0/src'
@@ -267,6 +268,7 @@ class WhatsThatPlaneSensor(CoordinatorEntity, SensorEntity):
             "airline_logo_link": airline_logo_link,
             "aircraft_model": dpath.util.get(flight, AIRCRAFT_MODEL, default=None),
             "aircraft_type": dpath.util.get(flight, AIRCRAFT_TYPE, default=None),
+            "aircraft_icao": dpath.util.get(flight, AIRCRAFT_ICAO, default=None),
             "aircraft_registration": dpath.util.get(flight, AIRCRAFT_REGISTRATION, default=None),
             "large_aircraft_image_link": dpath.util.get(flight, LARGE_AIRCRAFT_IMAGE, default=None),
             "medium_aircraft_image_link": dpath.util.get(flight, MEDIUM_AIRCRAFT_IMAGE, default=None),
