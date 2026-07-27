@@ -26,13 +26,10 @@ Compared with the upstream project, this fork expands the integration with:
 
 > Replace the placeholder images below with your own screenshots from this fork.
 
-![Placeholder: overview screenshot](docs/images/overview-placeholder.png)
+<img width="481" height="892" alt="image" src="https://github.com/user-attachments/assets/e088d40f-fe45-4f25-b3b5-ccbc6af0c889" />
 
-![Placeholder: live flights card](docs/images/live-flights-placeholder.png)
 
-![Placeholder: historic flights card](docs/images/historic-flights-placeholder.png)
-
-![Placeholder: map card](docs/images/map-card-placeholder.png)
+<img width="483" height="1890" alt="image" src="https://github.com/user-attachments/assets/5f7e3f43-8c37-46b6-a8ae-47adb92aeefb" />
 
 ## Installation
 
@@ -513,7 +510,7 @@ sections:
 
 It's possible to visualise recorded flights and their flight trails on a map card to achieve the map card shown in the video demonstration below. This is a great way to make your dashboard more interactive.
 
-![Placeholder: map demo video or screenshot](docs/images/map-demo-placeholder.png)
+https://github.com/user-attachments/assets/43a910b3-c2c1-41b1-8d23-74874c7dbaf3
 
 > ⚠️ Ensure that you have at least one configured entry before trying to use the map card.
 
@@ -541,7 +538,7 @@ grid_options:
 
 > 💡 **TIP**: To make the initial configuration process easier, you can use the map card to easily visualise your FOV cone settings.
 >
-> ![Placeholder: map card screenshot](docs/images/map-card-setup-placeholder.png)
+> ![Placeholder: map card screenshot](example_map.jpg)
 >
 > Once the map card is added to your dashboard, simply change your configuration settings then refer back to the dashboard card to view how your edits change the FOV cone **(you will need to refresh the dashboard after each configuration change)**.
 
