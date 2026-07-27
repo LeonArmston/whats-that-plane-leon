@@ -7,11 +7,13 @@ Once dialled in, you or your partner can also scream **"WHAT'S THAT PLANE?!"** e
 
 The flight data is pulled using the unofficial SDK for FlightRadar24; [FlightRadarAPI](https://github.com/JeanExtreme002/FlightRadarAPI).
 
+Compared with the upstream project, this fork now exposes a broader set of flight attributes including flight number, live status, status icon, airline codes and logo, aircraft ICAO hex, heading compass, origin/destination flag metadata, and last seen timestamps for historic flights.
+
 The exposed sensor information can be used to create interesting dashboard cards such as the example markdown card below:
 
 ![Example card](https://raw.githubusercontent.com/8bither0/whats-that-plane/main/example.jpg)
 
-See [Adding visible flight information card to your dashboard](#Adding-visible-flight-information-card-to-your-dashboard) below for the template code to add this card to your own dashboard.
+See [Adding visible flight information card to your dashboard](#adding-visible-flight-information-card-to-your-dashboard) below for the template code to add this card to your own dashboard.
 
 ## Installation
 ### HACS via link (Recommended)
@@ -22,19 +24,19 @@ See [Adding visible flight information card to your dashboard](#Adding-visible-f
 4. Restart Home Assistant.
 5. Now go to your Home Assistant settings and click on `Devices & services`.
 6. Click the `Add Integration` button in the bottom right corner and search for `What's that plane?!`.
-7. Select `What's that plane?!` and move onto the [Configuration](#Configuration) section.
+7. Select `What's that plane?!` and move onto the [Configuration](#configuration) section.
 
 ### HACS via custom repositories
 1. Go to the Home Assistant Community Store in Home Assistant.
 2. Click on the kebab icon in the top right corner and choose `Custom repositories`.
-3. In the `Repository` field, enter `https://github.com/8bither0/whats-that-plane` and select `Integration` as the `Type`.
+3. In the `Repository` field, enter `https://github.com/LeonArmston/whats-that-plane-leon` and select `Integration` as the `Type`.
 4. Click `Add` then close `Custom repositories`.
 5. If you now search HACS for `What's that plane?!` you should see the integration in the repository list. Click on the `What's that plane?!` integration.
 6. Click the `Download` button in the bottom right corner.
 7. Restart Home Assistant.
 8. Now go to your Home Assistant settings and click on `Devices & services`.
 9. Click the `Add Integration` button in the bottom right corner and search for `What's that plane?!`.
-10. Select `What's that plane?!` and move onto the [Configuration](#Configuration) section.
+10. Select `What's that plane?!` and move onto the [Configuration](#configuration) section.
 
 ### Manual
 1. Clone this repository to your local machine.
@@ -42,7 +44,7 @@ See [Adding visible flight information card to your dashboard](#Adding-visible-f
 3. Restart Home Assistant.
 4. Now go to your Home Assistant settings and click on `Devices & services`.
 5. Click the `Add Integration` button in the bottom right corner and search for `What's that plane?!`.
-6. Select `What's that plane?!` and move onto the [Configuration](#Configuration) section.
+6. Select `What's that plane?!` and move onto the [Configuration](#configuration) section.
 
 ## Configuration
 To initially configure the integration, define the information below. This can be reconfigured via configuration entry options after initial setup:
@@ -58,15 +60,130 @@ To initially configure the integration, define the information below. This can b
 | `update_interval`                   | ✅       | `10`                              | The number of seconds between each poll for flight information. |
 | `filter_flight_altitude_ft_minimum` | ❌       | `0`                               | The minimum flight altitude in feet for flights to be recorded. |
 | `filter_flight_altitude_ft_maximum` | ❌       | `60000`                           | The maximum flight altitude in feet for flights to be recorded. |
-| `hold_flight_data_seconds`          | ❌       | `0`                               | The total number of seconds to keep a flight's data after it leaves your field of view. This can act as a grace period for when you aren't able to view relevant data before the flight leaves your FOV cone. |
-| `historic_flights_max_count`        | ❌       | `0`                               | The total number of past flights to store in history. Can be used to show x number of flights that have recently left the FOV cone, useful for displaying "What was that plane?!" in case you miss it. See [Viewing historic flight information](#Viewing-historic-flight-information) for an example of how this can be utilised. |
+| `hold_flight_data_seconds`          | ❌       | `0`                               | The total number of seconds to keep a flight's data after it leaves your field of view. This can act as a grace period before a flight disappears from the sensor. |
+| `historic_flights_max_count`        | ❌       | `0`                               | The total number of past flights to store in history. Can be used to show x number of flights that have recently left your field of view. |
 | `distance_units`                    | ❌       | `metric (kilometres (km))`        | The unit of measurement to record flight distance in. |
 | `altitude_units`                    | ❌       | `imperial (feet (ft))`            | The unit of measurement to record flight altitude in. |
 | `speed_units`                       | ❌       | `imperial (miles per hour (mph))` | The unit of measurement to record flight speed in. |
 
-> 💡 **TIP**: To make the initial configuration process easier, you can use the map card to easily visualise your FOV cone settings while you adjust the initial settings. See [Visualising recorded flights on a map card](#Visualising-recorded-flights-on-a-map-card) for more information.
+> 💡 **TIP**: To make the initial configuration process easier, you can use the map card to easily visualise your FOV cone settings while you adjust the initial settings. See [Visualising recorded flights on a map card](#visualising-recorded-flights-on-a-map-card).
 
-After configuring the integration, a new sensor named `sensor.visible_flights` will be created. This will update at the frequency defined by the option `update_interval` and list flights visible within the defined field of view or additionally store flights that have recently left the defined field of view if the setting `historic_flights_max_count` is set to 1 or more. The exposed sensor information can be used to create a variety of interesting dashboard cards. See [Adding visible flight information card to your dashboard](#Adding-visible-flight-information-card-to-your-dashboard) for more information.
+After configuring the integration, a new sensor named `sensor.visible_flights` will be created. This will update at the frequency defined by the option `update_interval` and list flights visible within your defined FOV cone.
+
+## Sensor data model
+The sensor exposes three top-level attributes:
+
+- `config`: your active integration configuration used to calculate visibility and unit conversions.
+- `flights`: a list of currently visible flights.
+- `historic_flights`: a list of recently visible flights when `historic_flights_max_count` is enabled.
+
+### `config` attributes
+
+| Attribute | Description |
+| :-- | :-- |
+| `latitude` | Viewing location latitude. |
+| `longitude` | Viewing location longitude. |
+| `radius_km` | Search radius from the viewing location. |
+| `facing_direction` | Bearing used as the centre of the field-of-view cone. |
+| `fov_cone` | Width of the field-of-view cone in degrees. |
+| `distance_units` | Selected distance unit label used by the integration. |
+| `altitude_units` | Selected altitude unit label used by the integration. |
+| `speed_units` | Selected speed unit label used by the integration. |
+
+### Flight object attributes
+Every entry in `flights` and `historic_flights` can expose the following fields, depending on what FlightRadar24 returns for that aircraft.
+
+#### Identity and status
+
+| Attribute | Description |
+| :-- | :-- |
+| `callsign` | Flight callsign. |
+| `flight_id` | FlightRadar24 flight identifier. |
+| `flight_number` | Published flight number. |
+| `flightradar_link` | Direct link to the flight on FlightRadar24. |
+| `status_live` | Whether the flight is currently marked as live by FlightRadar24. |
+| `status_icon` | Status icon value returned by FlightRadar24. |
+
+#### Airline and aircraft
+
+| Attribute | Description |
+| :-- | :-- |
+| `airline_name` | Airline name. |
+| `airline_iata` | Airline IATA code. |
+| `airline_icao` | Airline ICAO code. |
+| `airline_logo_link` | Derived FlightRadar24 airline logo URL based on the ICAO code. |
+| `aircraft_model` | Aircraft model name. |
+| `aircraft_type` | Aircraft type code. |
+| `aircraft_icao` | Aircraft ICAO hex code. |
+| `aircraft_registration` | Aircraft registration. |
+| `large_aircraft_image_link` | Large aircraft image URL. |
+| `medium_aircraft_image_link` | Medium aircraft image URL. |
+| `small_aircraft_image_link` | Small aircraft image URL. |
+| `thumbnail_aircraft_image_link` | Thumbnail aircraft image URL. |
+
+#### Position, motion, and route progress
+
+| Attribute | Description |
+| :-- | :-- |
+| `latitude` | Current aircraft latitude. |
+| `longitude` | Current aircraft longitude. |
+| `altitude` | Current aircraft altitude in the selected units. |
+| `ground_speed` | Current ground speed in the selected units. |
+| `ground_speed_kts` | Current ground speed in knots. |
+| `heading` | Current heading in degrees. |
+| `heading_compass` | Cardinal or intercardinal heading derived from `heading`. |
+| `total_distance` | Total route distance in the selected distance units. |
+| `distance_traveled` | Distance already traveled in the selected distance units. |
+| `progress_percent` | Percent of route completed. |
+| `total_flight_time_formatted` | Calculated total flight time as a formatted string. |
+| `trail` | Recorded flight trail points used by the map card. |
+
+#### Origin and destination
+
+| Attribute | Description |
+| :-- | :-- |
+| `origin_city` | Origin city. |
+| `origin_country` | Origin country name. |
+| `origin_country_code` | Origin country code from FlightRadar24. |
+| `origin_country_code_flagsapi` | Origin country code normalised for flag/image usage. |
+| `origin_country_code_long` | Origin country long code. |
+| `origin_flag_emoji` | Emoji flag derived from the origin country code. |
+| `origin_airport_name` | Origin airport name. |
+| `origin_airport_code` | Origin airport IATA code. |
+| `origin_latitude` | Origin airport latitude. |
+| `origin_longitude` | Origin airport longitude. |
+| `destination_city` | Destination city. |
+| `destination_country` | Destination country name. |
+| `destination_country_code` | Destination country code from FlightRadar24. |
+| `destination_country_code_flagsapi` | Destination country code normalised for flag/image usage. |
+| `destination_country_code_long` | Destination country long code. |
+| `destination_flag_emoji` | Emoji flag derived from the destination country code. |
+| `destination_airport_name` | Destination airport name. |
+| `destination_airport_code` | Destination airport IATA code. |
+| `destination_latitude` | Destination airport latitude. |
+| `destination_longitude` | Destination airport longitude. |
+
+#### Schedule and delay data
+
+| Attribute | Description |
+| :-- | :-- |
+| `scheduled_departure_time_local` | Scheduled departure time converted to the origin timezone. |
+| `estimated_departure_time_local` | Estimated departure time converted to the origin timezone. |
+| `real_departure_time_local` | Actual departure time converted to the origin timezone. |
+| `estimated_departure_delay_mins` | Estimated departure delay in minutes. |
+| `departure_delay_mins` | Actual departure delay in minutes. |
+| `scheduled_arrival_time_local` | Scheduled arrival time converted to the destination timezone. |
+| `estimated_arrival_time_local` | Estimated arrival time converted to the destination timezone. |
+| `real_arrival_time_local` | Actual arrival time converted to the destination timezone. |
+| `estimated_arrival_delay_mins` | Estimated arrival delay in minutes. |
+| `arrival_delay_mins` | Actual arrival delay in minutes. |
+
+#### Historic flight fields
+
+| Attribute | Description |
+| :-- | :-- |
+| `last_seen_timestamp` | Timestamp for when the aircraft was last seen in your FOV. |
+| `last_seen_time_formatted` | Human-readable relative last-seen string such as `5m ago`. |
 
 ## Adding visible flight information card to your dashboard
 The template code required to achieve the card shown in the screenshot above can be found below. To create the card in dashboards that you have control over and are able to add cards to:
@@ -77,9 +194,9 @@ The template code required to achieve the card shown in the screenshot above can
 5. Click `Save`.
 6. Click `Done` in the top right corner.
 
-> If you'd like to extend this card to show historic flight data of flights that have recently left your FOV cone, complete this section first then ensure that your configuration setting `historic_flights_max_count` is 1 or more and move onto [Viewing historic flight information](#Viewing-historic-flight-information).
+> If you'd like to extend this card to show historic flight data of flights that have recently left your FOV cone, complete this section first then ensure that your configuration setting `historic_flights_max_count` is set to `1` or more.
 
-> If you haven't changed the default name of the sensor, you should simply be able to copy and paste the code below and it should work with no changes required. Otherwise, please find and replace your sensor name before pasting (Default: `sensor.visible_flights`):
+> If you haven't changed the default name of the sensor, you should simply be able to copy and paste the code below and it should work with no changes required. Otherwise, please find and replace every instance of `sensor.visible_flights` with your sensor's name.
 
 ```
 type: markdown
@@ -105,9 +222,9 @@ content: >-
   {% if flight.total_distance and flight.total_distance > 0 %}
     {%- set bar_width = 20 -%}
     {%- set plane_pos = max(1, (bar_width * flight.progress_percent / 100) | round | int) -%}
-    **{{ flight.origin_country_code_long or flight.origin_country_code }} {{ flight.origin_flag_emoji or flight.origin_airport_code }}** `{{ '─' * (plane_pos - 1) }}✈️{{ '─' * (bar_width - plane_pos) }}` **{{ flight.destination_flag_emoji or flight.destination_airport_code }} {{ flight.destination_country_code_long or flight.destination_country_code }}**
+    **{{ flight.origin_country_code_long or flight.origin_country_code }} {{ flight.origin_flag_emoji or flight.origin_airport_code }}** `{{ '─' * (plane_pos - 1) }}✈️{{ '─' * (bar_width - plane_pos) }}` **{{ flight.destination_country_code_long or flight.destination_country_code }} {{ flight.destination_flag_emoji or flight.destination_airport_code }}**
     📏 **Distance:** *{{ flight.distance_traveled }} of {{ flight.total_distance }} {{ state_attr('sensor.visible_flights', 'config')['distance_units'].split('(')[-1] | replace(')', '') }} ({{ flight.progress_percent }}%)*
-    📈 **Altitude:** {{ flight.altitude | default(0, true) | round(0) }} {{ state_attr('sensor.visible_flights', 'config')['altitude_units'].split('(')[-1] | replace(')', '') }} | **Speed:** {{ flight.ground_speed_kts | default(0, true) }} kts ({{ (flight.ground_speed | default(0, true)) | round(0) }} {{ state_attr('sensor.visible_flights', 'config')['speed_units'].split('(')[-1] | replace(')', '') }})
+    📈 **Altitude:** {{ flight.altitude | default(0, true) | round(0) }} {{ state_attr('sensor.visible_flights', 'config')['altitude_units'].split('(')[-1] | replace(')', '') }} | **Speed:** {{ flight.ground_speed | default(0, true) | round(0) }} {{ state_attr('sensor.visible_flights', 'config')['speed_units'].split('(')[-1] | replace(')', '') }} | **Heading:** {{ flight.heading_compass or flight.heading }}
     {% if flight.total_flight_time_formatted %} 🕑 **Total Flight Time:** {{ flight.total_flight_time_formatted }}
     {% endif %}
   {% endif %}
@@ -163,17 +280,17 @@ content: >-
 ```
 
 ## Viewing historic flight information
-If your configuration setting for `historic_flights_max_count` is set to 1 or more, you can utilise the `historic_flights` attribute to view a log of flights that have left your defined FOV cone. This can be especially useful in situations where you just miss a plane but are still curious about what it was so instead of asking "What's that plane?!" you're left asking "What **was** that plane?!".
+If your configuration setting for `historic_flights_max_count` is set to 1 or more, you can utilise the `historic_flights` attribute to view a log of flights that have left your defined FOV cone.
 
-After you've already configured your main dashboard card (see [Adding visible flight information card to your dashboard](#Adding-visible-flight-information-card-to-your-dashboard)), you can extend this to show historic flights using the code below. Simply copy and paste it after the code for the existing card.
+After you've already configured your main dashboard card (see [Adding visible flight information card to your dashboard](#adding-visible-flight-information-card-to-your-dashboard)), you can extend the existing card with the template below.
 
 This section basically clones the existing card but only shows it for historic flights. The only real change is the addition of a last seen time on the title line for each flight.
 
-**N.B.** It's important to note that when a plane leaves your defined FOV cone, its flight information will stop updating as the integration stops tracking the flight at this point. Stats are correct up to the moment the flight leaves the FOV cone, at which point the data is frozen.
+**N.B.** It's important to note that when a plane leaves your defined FOV cone, its flight information will stop updating as the integration stops tracking the flight at this point. Stats are correct as of the aircraft's last visible position.
 
 ![Example history](https://raw.githubusercontent.com/8bither0/whats-that-plane/main/example_history.jpg)
 
-> If you haven't changed the default name of the sensor, you should simply be able to copy and paste the code below and it should work with no changes required. Otherwise, please find and replace your sensor name before pasting (Default: `sensor.visible_flights`):
+> If you haven't changed the default name of the sensor, you should simply be able to copy and paste the code below and it should work with no changes required. Otherwise, please find and replace every instance of `sensor.visible_flights` with your sensor's name.
 
 ```
 
@@ -196,15 +313,15 @@ This section basically clones the existing card but only shows it for historic f
   {% endif %}
 
   {% elif flight.callsign %}
-  ✈️ **{{ flight.airline_name }} [**{{ flight.callsign }}**]({{ flight.flightradar_link }}) (**{{ flight.origin_airport_code }} → {{ flight.destination_airport_code }}**)** {% if flight.last_seen_time_formatted %} | *{{ flight.last_seen_time_formatted }}* {% endif %}
+  ✈️ **{{ flight.airline_name }} [**{{ flight.callsign }}**]({{ flight.flightradar_link }}) (**{{ flight.origin_airport_code }} → {{ flight.destination_airport_code }}**)** {% if flight.last_seen_time_formatted %}_(Last seen {{ flight.last_seen_time_formatted }})_{% endif %}
 
 
   {% if flight.total_distance and flight.total_distance > 0 %}
     {%- set bar_width = 20 -%}
     {%- set plane_pos = max(1, (bar_width * flight.progress_percent / 100) | round | int) -%}
-    **{{ flight.origin_country_code_long or flight.origin_country_code }} {{ flight.origin_flag_emoji or flight.origin_airport_code }}** `{{ '─' * (plane_pos - 1) }}✈️{{ '─' * (bar_width - plane_pos) }}` **{{ flight.destination_flag_emoji or flight.destination_airport_code }} {{ flight.destination_country_code_long or flight.destination_country_code }}**
+    **{{ flight.origin_country_code_long or flight.origin_country_code }} {{ flight.origin_flag_emoji or flight.origin_airport_code }}** `{{ '─' * (plane_pos - 1) }}✈️{{ '─' * (bar_width - plane_pos) }}` **{{ flight.destination_country_code_long or flight.destination_country_code }} {{ flight.destination_flag_emoji or flight.destination_airport_code }}**
     📏 **Distance:** *{{ flight.distance_traveled }} of {{ flight.total_distance }} {{ state_attr('sensor.visible_flights', 'config')['distance_units'].split('(')[-1] | replace(')', '') }} ({{ flight.progress_percent }}%)*
-    📈 **Altitude:** {{ flight.altitude | default(0, true) | round(0) }} {{ state_attr('sensor.visible_flights', 'config')['altitude_units'].split('(')[-1] | replace(')', '') }} | **Speed:** {{ flight.ground_speed_kts | default(0, true) }} kts ({{ (flight.ground_speed | default(0, true)) | round(0) }} {{ state_attr('sensor.visible_flights', 'config')['speed_units'].split('(')[-1] | replace(')', '') }})
+    📈 **Altitude:** {{ flight.altitude | default(0, true) | round(0) }} {{ state_attr('sensor.visible_flights', 'config')['altitude_units'].split('(')[-1] | replace(')', '') }} | **Speed:** {{ flight.ground_speed | default(0, true) | round(0) }} {{ state_attr('sensor.visible_flights', 'config')['speed_units'].split('(')[-1] | replace(')', '') }} | **Heading:** {{ flight.heading_compass or flight.heading }}
     {% if flight.total_flight_time_formatted %} 🕑 **Total Flight Time:** {{ flight.total_flight_time_formatted }}
     {% endif %}
   {% endif %}
@@ -260,7 +377,7 @@ This section basically clones the existing card but only shows it for historic f
 ```
 
 ## Visualising recorded flights on a map card
-It's possible to visualise recorded flights and their flight trails on a map card to achieve the map card shown in the video demonstration below. This is a great way to make your dashboard more interactive and visualise where flights have come from and where they're going to. Or, simply use the map as a helper when initially configuring your FOV cone settings:
+It's possible to visualise recorded flights and their flight trails on a map card to achieve the map card shown in the video demonstration below. This is a great way to make your dashboard more interactive.
 
 https://github.com/user-attachments/assets/43a910b3-c2c1-41b1-8d23-74874c7dbaf3
 
@@ -274,7 +391,7 @@ To add the map card to dashboards that you have control over and are able to add
 5. Click `Save`.
 6. Click `Done` in the top right corner.
 
-> If you haven't changed the default name of the sensor, you should simply be able to copy and paste the code below and it should work with no changes required. Otherwise, please find and replace your sensor name before pasting (Default: `sensor.visible_flights`):
+> If you haven't changed the default name of the sensor, you should simply be able to copy and paste the code below and it should work with no changes required. Otherwise, please find and replace every instance of `sensor.visible_flights` with your sensor's name.
 
 ```
 square: true
@@ -291,12 +408,12 @@ grid_options:
 >
 > ![Example map](https://raw.githubusercontent.com/8bither0/whats-that-plane/main/example_map.jpg)
 >
-> Once the map card is added to your dashboard, simply change your configuration settings then refer back to the dashboard card to view how your edits change the FOV cone **(you will need to refresh your dashboard page to force an update due to caching)**.
+> Once the map card is added to your dashboard, simply change your configuration settings then refer back to the dashboard card to view how your edits change the FOV cone **(you will need to refresh the dashboard after each configuration change)**.
 
-**N.B.** It's important to note that when a plane leaves your defined FOV cone, its flight information will stop updating as the integration stops tracking the flight at this point. Stats are correct up to the moment the flight leaves the FOV cone, at which point the data is frozen.
+**N.B.** It's important to note that when a plane leaves your defined FOV cone, its flight information will stop updating as the integration stops tracking the flight at this point. Stats are correct as of the aircraft's last visible position.
 
 ## Support
-This was a fun little weekend project and I'm unlikely to actively support this. However, if you encounter any issues or have questions, please open an [issue](https://github.com/8bither0/whats-that-plane/issues) on GitHub and I will review if/when I'm able to.
+This was a fun little weekend project and I'm unlikely to actively support this. However, if you encounter any issues or have questions, please open an [issue](https://github.com/LeonArmston/whats-that-plane-leon/issues).
 
 ## License
-This project is licensed under the MIT License. See the [LICENSE](https://github.com/8bither0/whats-that-plane/blob/main/LICENSE) file for details.
+This project is licensed under the MIT License. See the [LICENSE](https://github.com/LeonArmston/whats-that-plane-leon/blob/main/LICENSE) file for details.
