@@ -1,23 +1,44 @@
 # What's that plane?!
-A Home Assistant integration made for my partner who enjoys looking up flight information, specifically for planes that pass by her office window.
 
-The unique part about this integration is that it will simulate a cone of vision in a specified direction and only report back flight information within the FOV. This cone of vision acts as the filter for returned flight information rather than an entire circle radius from the defined home position (though this is also still possible by setting your FOV cone to 360°).
+This repository is an extended fork of [8bither0/whats-that-plane](https://github.com/8bither0/whats-that-plane), the original Home Assistant integration for tracking aircraft passing through a configurable cone of view from a chosen location.
 
-Once dialled in, you or your partner can also scream **"WHAT'S THAT PLANE?!"** every time a plane passes by and view a bunch of interesting stats while it's in line of sight. This can quickly become out of hand and you may start collecting sightings of planes' shiny custom livery variants.
+Full credit goes to [@8bither0](https://github.com/8bither0) for the original project, idea, and integration foundation. This fork builds on that work and focuses on exposing richer flight data, improving dashboard flexibility, and making it easier to build more advanced Home Assistant views.
 
-The flight data is pulled using the unofficial SDK for FlightRadar24; [FlightRadarAPI](https://github.com/JeanExtreme002/FlightRadarAPI).
+## Why this fork exists
 
-Compared with the upstream project, this fork now exposes a broader set of flight attributes including flight number, live status, status icon, airline codes and logo, aircraft ICAO hex, heading compass, origin/destination flag metadata, and last seen timestamps for historic flights.
+The upstream project already solved the core problem really well: tracking aircraft inside a directional field of view rather than only within a simple radius around a point.
 
-The exposed sensor information can be used to create interesting dashboard cards such as the example markdown card below:
+This fork keeps that core approach, but extends the data exposed to Home Assistant and adds more reusable dashboard patterns around it. The aim is not to replace the original project, but to build on it for users who want more metadata, richer visualisation, and more flexible Lovelace setups.
 
-![Example card](https://raw.githubusercontent.com/8bither0/whats-that-plane/main/example.jpg)
+## What this fork adds
 
-See [Building dashboard cards with Decluttering Card](#building-dashboard-cards-with-decluttering-card) below for the recommended reusable dashboard setup.
+Compared with the upstream project, this fork expands the integration with:
+
+- richer flight metadata such as `flight_number`, `status_live`, `status_icon`, and `aircraft_icao`
+- additional airline and aircraft details including airline codes and airline logo links
+- heading helpers such as `heading_compass`
+- improved origin and destination metadata including flag-ready country codes
+- historic flight attributes such as `last_seen_timestamp` and `last_seen_time_formatted`
+- reusable Home Assistant dashboard patterns using Decluttering Card
+- more advanced Lovelace examples for live flights, recent flights, and map-based views
+
+## Example screenshots
+
+> Replace the placeholder images below with your own screenshots from this fork.
+
+![Placeholder: overview screenshot](docs/images/overview-placeholder.png)
+
+![Placeholder: live flights card](docs/images/live-flights-placeholder.png)
+
+![Placeholder: historic flights card](docs/images/historic-flights-placeholder.png)
+
+![Placeholder: map card](docs/images/map-card-placeholder.png)
 
 ## Installation
+
 ### HACS via link (Recommended)
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=8bither0&repository=whats-that-plane&category=integration)
+
 1. Click the button above to open the integration in Home Assistant Community Store in Home Assistant.
 2. Click `Add`.
 3. Click the `Download` button in the bottom right corner.
@@ -27,6 +48,7 @@ See [Building dashboard cards with Decluttering Card](#building-dashboard-cards-
 7. Select `What's that plane?!` and move onto the [Configuration](#configuration) section.
 
 ### HACS via custom repositories
+
 1. Go to the Home Assistant Community Store in Home Assistant.
 2. Click on the kebab icon in the top right corner and choose `Custom repositories`.
 3. In the `Repository` field, enter `https://github.com/LeonArmston/whats-that-plane-leon` and select `Integration` as the `Type`.
@@ -39,6 +61,7 @@ See [Building dashboard cards with Decluttering Card](#building-dashboard-cards-
 10. Select `What's that plane?!` and move onto the [Configuration](#configuration) section.
 
 ### Manual
+
 1. Clone this repository to your local machine.
 2. Copy the `custom_components/whats_that_plane` directory to the `custom_components` directory in your Home Assistant file system.
 3. Restart Home Assistant.
@@ -47,6 +70,7 @@ See [Building dashboard cards with Decluttering Card](#building-dashboard-cards-
 6. Select `What's that plane?!` and move onto the [Configuration](#configuration) section.
 
 ## Configuration
+
 To initially configure the integration, define the information below. This can be reconfigured via configuration entry options after initial setup:
 
 | Option                              | Required | Example value                     | Description |
@@ -68,14 +92,15 @@ To initially configure the integration, define the information below. This can b
 
 > 💡 **TIP**: To make the initial configuration process easier, you can use the map card to easily visualise your FOV cone settings while you adjust the initial settings. See [Visualising recorded flights on a map card](#visualising-recorded-flights-on-a-map-card).
 
-After configuring the integration, a new sensor named `sensor.visible_flights` will be created. This will update at the frequency defined by the option `update_interval` and list flights visible within your defined FOV cone.
+After configuring the integration, a new sensor named `sensor.visible_flights` will be created. This updates at the frequency defined by `update_interval` and exposes both live and historic flight information depending on your configuration.
 
 ## Sensor data model
+
 The sensor exposes three top-level attributes:
 
-- `config`: your active integration configuration used to calculate visibility and unit conversions.
-- `flights`: a list of currently visible flights.
-- `historic_flights`: a list of recently visible flights when `historic_flights_max_count` is enabled.
+- `config`: your active integration configuration used to calculate visibility and unit conversions
+- `flights`: a list of currently visible flights
+- `historic_flights`: a list of recently visible flights when `historic_flights_max_count` is enabled
 
 ### `config` attributes
 
@@ -91,6 +116,7 @@ The sensor exposes three top-level attributes:
 | `speed_units` | Selected speed unit label used by the integration. |
 
 ### Flight object attributes
+
 Every entry in `flights` and `historic_flights` can expose the following fields, depending on what FlightRadar24 returns for that aircraft.
 
 #### Identity and status
@@ -186,16 +212,19 @@ Every entry in `flights` and `historic_flights` can expose the following fields,
 | `last_seen_time_formatted` | Human-readable relative last-seen string such as `5m ago`. |
 
 ## Building dashboard cards with Decluttering Card
-The older one-off markdown examples are less representative of how this fork is intended to be used now. The recommended approach is to define a reusable Decluttering Card template and then instantiate it with variables for live flights and historic flights.
+
+The recommended approach for this fork is to define a reusable Decluttering Card template and then instantiate it with variables for live flights and historic flights.
 
 This gives you a single card definition that can be reused for:
+
 - currently visible flights
 - historic flights
 - different sensor entities
 - different card titles
 - different empty-state messages
 
-It also makes it much easier to take advantage of the richer fields exposed by this fork, including:
+It also makes it easier to take advantage of the richer fields exposed by this fork, including:
+
 - `flight_number`
 - `status_icon`
 - `heading_compass`
@@ -207,15 +236,18 @@ It also makes it much easier to take advantage of the richer fields exposed by t
 - `trail`
 
 ### Requirements
+
 - [Decluttering Card](https://github.com/custom-cards/decluttering-card)
 - [card-mod](https://github.com/thomasloven/lovelace-card-mod)
 
 ### Notes
+
 - The blocked-flight check uses `Blocked` with a capital `B` because that is how the integration exposes blocked callsigns.
 - Vertical trend calculation relies on timestamped trail data being present.
 - Airline logos and some external links depend on third-party services and may not always resolve for every flight.
 
 ### 1) Define the reusable template
+
 ```
 decluttering_templates:
   flight_list_card:
@@ -388,6 +420,7 @@ decluttering_templates:
 ```
 
 ### 2) Reuse the same template for live and historic flights
+
 Once the template is defined, you can create separate cards simply by changing the variables. The important part for historical flights is setting `flights_attribute: historic_flights`.
 
 ```
@@ -415,6 +448,7 @@ cards:
 ```
 
 ### 3) Example dashboard usage
+
 Below is a trimmed version of a fuller dashboard setup showing how the reusable flight cards fit alongside the live counter, quick summary card, iframe, and map card.
 
 ```
@@ -476,13 +510,15 @@ sections:
 ```
 
 ## Visualising recorded flights on a map card
+
 It's possible to visualise recorded flights and their flight trails on a map card to achieve the map card shown in the video demonstration below. This is a great way to make your dashboard more interactive.
 
-https://github.com/user-attachments/assets/43a910b3-c2c1-41b1-8d23-74874c7dbaf3
+![Placeholder: map demo video or screenshot](docs/images/map-demo-placeholder.png)
 
 > ⚠️ Ensure that you have at least one configured entry before trying to use the map card.
 
 To add the map card to dashboards that you have control over and are able to add cards to:
+
 1. Click the pencil icon in the top right corner to `Edit dashboard`.
 2. Click the `Add card` button in the bottom right corner.
 3. Search for and click on the `Manual` card type.
@@ -505,14 +541,24 @@ grid_options:
 
 > 💡 **TIP**: To make the initial configuration process easier, you can use the map card to easily visualise your FOV cone settings.
 >
-> ![Example map](https://raw.githubusercontent.com/8bither0/whats-that-plane/main/example_map.jpg)
+> ![Placeholder: map card screenshot](docs/images/map-card-setup-placeholder.png)
 >
 > Once the map card is added to your dashboard, simply change your configuration settings then refer back to the dashboard card to view how your edits change the FOV cone **(you will need to refresh the dashboard after each configuration change)**.
 
 **N.B.** It's important to note that when a plane leaves your defined FOV cone, its flight information will stop updating as the integration stops tracking the flight at this point. Stats are correct as of the aircraft's last visible position.
 
+## Attribution
+
+This project is based on the original [8bither0/whats-that-plane](https://github.com/8bither0/whats-that-plane) project.
+
+This fork keeps the original concept and Home Assistant integration structure, while extending the exposed flight data, dashboard examples, and presentation options.
+
 ## Support
-This was a fun little weekend project and I'm unlikely to actively support this. However, if you encounter any issues or have questions, please open an [issue](https://github.com/LeonArmston/whats-that-plane-leon/issues).
+
+This repository is a fork and extension of the original project rather than an official upstream replacement. If you encounter issues specific to this fork, please open an issue here:
+
+https://github.com/LeonArmston/whats-that-plane-leon/issues
 
 ## License
+
 This project is licensed under the MIT License. See the [LICENSE](https://github.com/LeonArmston/whats-that-plane-leon/blob/main/LICENSE) file for details.
