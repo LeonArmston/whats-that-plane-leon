@@ -13,7 +13,7 @@ The exposed sensor information can be used to create interesting dashboard cards
 
 ![Example card](https://raw.githubusercontent.com/8bither0/whats-that-plane/main/example.jpg)
 
-See [Adding visible flight information card to your dashboard](#adding-visible-flight-information-card-to-your-dashboard) below for the template code to add this card to your own dashboard.
+See [Building dashboard cards with Decluttering Card](#building-dashboard-cards-with-decluttering-card) below for the recommended reusable dashboard setup.
 
 ## Installation
 ### HACS via link (Recommended)
@@ -185,110 +185,17 @@ Every entry in `flights` and `historic_flights` can expose the following fields,
 | `last_seen_timestamp` | Timestamp for when the aircraft was last seen in your FOV. |
 | `last_seen_time_formatted` | Human-readable relative last-seen string such as `5m ago`. |
 
-## Adding visible flight information card to your dashboard
-The template code required to achieve the card shown in the screenshot above can be found below. To create the card in dashboards that you have control over and are able to add cards to:
-1. Click the pencil icon in the top right corner to `Edit dashboard`.
-2. Click the `Add card` button in the bottom right corner.
-3. Search for and click on the `Manual` card type.
-4. Copy and paste the code below into the code text field.
-5. Click `Save`.
-6. Click `Done` in the top right corner.
+## Building dashboard cards with Decluttering Card
+The older one-off markdown examples are less representative of how this fork is intended to be used now. The recommended approach is to define a reusable Decluttering Card template and then instantiate it with variables for live flights and historic flights.
 
-> If you'd like to extend this card to show historic flight data of flights that have recently left your FOV cone, complete this section first then ensure that your configuration setting `historic_flights_max_count` is set to `1` or more.
-
-> If you haven't changed the default name of the sensor, you should simply be able to copy and paste the code below and it should work with no changes required. Otherwise, please find and replace every instance of `sensor.visible_flights` with your sensor's name.
-
-```
-type: markdown
-title: What's that plane?!
-content: >-
-  {% set flights = state_attr('sensor.visible_flights', 'flights') %}
-  {% if flights and flights | count > 0 %}
-  {% for flight in flights %}
-
-  {% if flight.callsign == "Blocked" %} 🚫 [**{{ flight.callsign }}**]({{ flight.flightradar_link }})
-  {% if flight.aircraft_model %}
-  **{{ flight.aircraft_model }}** *({{ flight.aircraft_type }})* | **Registration:** {{ flight.aircraft_registration }}
-  {% endif %}
-  {%- set image = flight.large_aircraft_image_link or flight.medium_aircraft_image_link or flight.small_aircraft_image_link or flight.thumbnail_aircraft_image_link %}
-  {% if image %}
-    ![]({{ image }})
-  {% endif %}
-
-  {% elif flight.callsign %}
-  ✈️ **{{ flight.airline_name }} [**{{ flight.callsign }}**]({{ flight.flightradar_link }}) (**{{ flight.origin_airport_code }} → {{ flight.destination_airport_code }}**)**
-
-
-  {% if flight.total_distance and flight.total_distance > 0 %}
-    {%- set bar_width = 20 -%}
-    {%- set plane_pos = max(1, (bar_width * flight.progress_percent / 100) | round | int) -%}
-    **{{ flight.origin_country_code_long or flight.origin_country_code }} {{ flight.origin_flag_emoji or flight.origin_airport_code }}** `{{ '─' * (plane_pos - 1) }}✈️{{ '─' * (bar_width - plane_pos) }}` **{{ flight.destination_country_code_long or flight.destination_country_code }} {{ flight.destination_flag_emoji or flight.destination_airport_code }}**
-    📏 **Distance:** *{{ flight.distance_traveled }} of {{ flight.total_distance }} {{ state_attr('sensor.visible_flights', 'config')['distance_units'].split('(')[-1] | replace(')', '') }} ({{ flight.progress_percent }}%)*
-    📈 **Altitude:** {{ flight.altitude | default(0, true) | round(0) }} {{ state_attr('sensor.visible_flights', 'config')['altitude_units'].split('(')[-1] | replace(')', '') }} | **Speed:** {{ flight.ground_speed | default(0, true) | round(0) }} {{ state_attr('sensor.visible_flights', 'config')['speed_units'].split('(')[-1] | replace(')', '') }} | **Heading:** {{ flight.heading_compass or flight.heading }}
-    {% if flight.total_flight_time_formatted %} 🕑 **Total Flight Time:** {{ flight.total_flight_time_formatted }}
-    {% endif %}
-  {% endif %}
-
-  {% if flight.origin_city or flight.origin_country or flight.destination_city or flight.destination_country or flight.origin_airport_name or flight.destination_airport_name %}
-    🌍 {{ flight.origin_city }}, _**{{ flight.origin_country }}**_ → {{ flight.destination_city }}, _**{{ flight.destination_country }}**_
-    🛂 {{ flight.origin_airport_name | replace('Airport', '') | trim }} → {{ flight.destination_airport_name | replace('Airport', '') | trim }}
-  {% endif %}
-
-  {% if flight.scheduled_departure_time_local %} {% set departure_delay = flight.departure_delay_mins if flight.departure_delay_mins is not none else flight.estimated_departure_delay_mins %}
-  🛫 **Scheduled Departure:** {{ flight.scheduled_departure_time_local }}
-  {% if departure_delay is not none %}
-  {% if departure_delay > 0 %}
-    - ⚠️ **Delayed: {{ departure_delay }} minutes**
-  {% elif departure_delay < 0 %}
-    - ✅ **Early: {{ departure_delay | abs }} minutes**
-  {% endif %}
-  {% endif %}
-  {% if flight.real_departure_time_local %}
-    - **Actual Departure:** {{ flight.real_departure_time_local }}
-  {% elif flight.estimated_departure_time_local %}
-    - **Estimated Departure:** {{ flight.estimated_departure_time_local }}
-  {% endif %}
-  {% endif %}
-
-  {% if flight.scheduled_arrival_time_local %} {% set arrival_delay = flight.arrival_delay_mins if flight.arrival_delay_mins is not none else flight.estimated_arrival_delay_mins %}
-  🛬 **Scheduled Arrival:** {{ flight.scheduled_arrival_time_local }}
-  {% if arrival_delay is not none %}
-  {% if arrival_delay > 0 %}
-    - ⚠️ **Delayed: {{ arrival_delay }} minutes**
-  {% elif arrival_delay < 0 %}
-    - ✅ **Early: {{ arrival_delay | abs }} minutes**
-  {% endif %} {% endif %} {% if flight.real_arrival_time_local %}
-    - **Actual Arrival:** {{ flight.real_arrival_time_local }}
-  {% elif flight.estimated_arrival_time_local %}
-    - **Estimated Arrival:** {{ flight.estimated_arrival_time_local }}
-  {% endif %} {% endif %}
-
-  {% if flight.aircraft_model %}
-    **{{ flight.aircraft_model }}** *({{ flight.aircraft_type }})* | **Registration:** {{ flight.aircraft_registration }} {% endif %}
-  {%- set image = flight.large_aircraft_image_link or flight.medium_aircraft_image_link or flight.small_aircraft_image_link or flight.thumbnail_aircraft_image_link %}
-  {% if image %}
-    ![]({{ image }})
-  {% endif %}
-
-  ***
-  
-  {% endif %}
-  {% endfor %}
-  {% else %}
-    No visible flights at the moment.
-  {% endif %}
-```
-
-## Advanced dashboard card using Decluttering Card
-If you want a more reusable and feature-rich dashboard setup, I use a variable-driven [Decluttering Card](https://github.com/custom-cards/decluttering-card) template for most of my own flight cards.
-
-This makes it easy to reuse the same card for:
+This gives you a single card definition that can be reused for:
 - currently visible flights
 - historic flights
 - different sensor entities
-- different card titles and empty-state messages
+- different card titles
+- different empty-state messages
 
-It also demonstrates how to use many of the richer fields exposed by this fork, including:
+It also makes it much easier to take advantage of the richer fields exposed by this fork, including:
 - `flight_number`
 - `status_icon`
 - `heading_compass`
@@ -308,7 +215,7 @@ It also demonstrates how to use many of the richer fields exposed by this fork, 
 - Vertical trend calculation relies on timestamped trail data being present.
 - Airline logos and some external links depend on third-party services and may not always resolve for every flight.
 
-### Template example
+### 1) Define the reusable template
 ```
 decluttering_templates:
   flight_list_card:
@@ -480,101 +387,92 @@ decluttering_templates:
             }
 ```
 
-## Viewing historic flight information
-If your configuration setting for `historic_flights_max_count` is set to 1 or more, you can utilise the `historic_flights` attribute to view a log of flights that have left your defined FOV cone.
-
-After you've already configured your main dashboard card (see [Adding visible flight information card to your dashboard](#adding-visible-flight-information-card-to-your-dashboard)), you can extend the existing card with the template below.
-
-This section basically clones the existing card but only shows it for historic flights. The only real change is the addition of a last seen time on the title line for each flight.
-
-**N.B.** It's important to note that when a plane leaves your defined FOV cone, its flight information will stop updating as the integration stops tracking the flight at this point. Stats are correct as of the aircraft's last visible position.
-
-![Example history](https://raw.githubusercontent.com/8bither0/whats-that-plane/main/example_history.jpg)
-
-> If you haven't changed the default name of the sensor, you should simply be able to copy and paste the code below and it should work with no changes required. Otherwise, please find and replace every instance of `sensor.visible_flights` with your sensor's name.
+### 2) Reuse the same template for live and historic flights
+Once the template is defined, you can create separate cards simply by changing the variables. The important part for historical flights is setting `flights_attribute: historic_flights`.
 
 ```
+type: vertical-stack
+cards:
+  - type: custom:decluttering-card
+    template: flight_list_card
+    variables:
+      - sensor_entity: sensor.visible_flights
+      - flights_attribute: flights
+      - card_title: "✈️☁️ Flight Overhead"
+      - empty_message: "No flights overhead at the moment."
+    visibility:
+      - condition: numeric_state
+        entity: sensor.visible_flights
+        above: 0
 
+  - type: custom:decluttering-card
+    template: flight_list_card
+    variables:
+      - sensor_entity: sensor.visible_flights
+      - flights_attribute: historic_flights
+      - card_title: "🧾 Last Flights Overhead"
+      - empty_message: "No recent flight history."
+```
 
-  ***
-  
-  # What was that plane?!
+### 3) Example dashboard usage
+Below is a trimmed version of a fuller dashboard setup showing how the reusable flight cards fit alongside the live counter, quick summary card, iframe, and map card.
 
-  {% set historic_flights = state_attr('sensor.visible_flights', 'historic_flights') %}
-  {% if historic_flights and historic_flights | count > 0 %}
-  {% for flight in historic_flights %}
+```
+type: sections
+path: planes
+max_columns: 3
+sections:
+  - type: grid
+    cards:
+      - type: vertical-stack
+        title: 📡✈️ Flight Tracker
+        cards:
+          - type: entities
+            entities:
+              - entity: sensor.visible_flights
+                name: In area
+          - type: conditional
+            conditions:
+              - condition: numeric_state
+                entity: sensor.visible_flights
+                above: 0
+            card:
+              type: markdown
+              content: >-
+                {% set data = state_attr('sensor.visible_flights', 'flights') | default([], true) %}
+                {% for flight in data %}
+                  <a href="{{ flight.flightradar_link }}">{{ flight.flight_number }} - {{ flight.airline_name }}</a>
+                {% endfor %}
+          - type: iframe
+            url: https://globe.adsb.fi/?enableLabels&trackLabels&zoom=13&hideSideBar&SiteLat=52.29&SiteLon=-1.53
+            aspect_ratio: 100%
+          - square: true
+            type: grid
+            cards:
+              - type: custom:whats-that-plane-map
+                entity: sensor.visible_flights
+            columns: 1
+            grid_options:
+              columns: full
 
-  {% if flight.callsign == "Blocked" %} 🚫 [**{{ flight.callsign }}**]({{ flight.flightradar_link }})
-  {% if flight.aircraft_model %}
-  **{{ flight.aircraft_model }}** *({{ flight.aircraft_type }})* | **Registration:** {{ flight.aircraft_registration }}
-  {% endif %}
-  {%- set image = flight.large_aircraft_image_link or flight.medium_aircraft_image_link or flight.small_aircraft_image_link or flight.thumbnail_aircraft_image_link %}
-  {% if image %}
-    ![]({{ image }})
-  {% endif %}
-
-  {% elif flight.callsign %}
-  ✈️ **{{ flight.airline_name }} [**{{ flight.callsign }}**]({{ flight.flightradar_link }}) (**{{ flight.origin_airport_code }} → {{ flight.destination_airport_code }}**)** {% if flight.last_seen_time_formatted %}_(Last seen {{ flight.last_seen_time_formatted }})_{% endif %}
-
-
-  {% if flight.total_distance and flight.total_distance > 0 %}
-    {%- set bar_width = 20 -%}
-    {%- set plane_pos = max(1, (bar_width * flight.progress_percent / 100) | round | int) -%}
-    **{{ flight.origin_country_code_long or flight.origin_country_code }} {{ flight.origin_flag_emoji or flight.origin_airport_code }}** `{{ '─' * (plane_pos - 1) }}✈️{{ '─' * (bar_width - plane_pos) }}` **{{ flight.destination_country_code_long or flight.destination_country_code }} {{ flight.destination_flag_emoji or flight.destination_airport_code }}**
-    📏 **Distance:** *{{ flight.distance_traveled }} of {{ flight.total_distance }} {{ state_attr('sensor.visible_flights', 'config')['distance_units'].split('(')[-1] | replace(')', '') }} ({{ flight.progress_percent }}%)*
-    📈 **Altitude:** {{ flight.altitude | default(0, true) | round(0) }} {{ state_attr('sensor.visible_flights', 'config')['altitude_units'].split('(')[-1] | replace(')', '') }} | **Speed:** {{ flight.ground_speed | default(0, true) | round(0) }} {{ state_attr('sensor.visible_flights', 'config')['speed_units'].split('(')[-1] | replace(')', '') }} | **Heading:** {{ flight.heading_compass or flight.heading }}
-    {% if flight.total_flight_time_formatted %} 🕑 **Total Flight Time:** {{ flight.total_flight_time_formatted }}
-    {% endif %}
-  {% endif %}
-
-  {% if flight.origin_city or flight.origin_country or flight.destination_city or flight.destination_country or flight.origin_airport_name or flight.destination_airport_name %}
-    🌍 {{ flight.origin_city }}, _**{{ flight.origin_country }}**_ → {{ flight.destination_city }}, _**{{ flight.destination_country }}**_
-    🛂 {{ flight.origin_airport_name | replace('Airport', '') | trim }} → {{ flight.destination_airport_name | replace('Airport', '') | trim }}
-  {% endif %}
-
-  {% if flight.scheduled_departure_time_local %} {% set departure_delay = flight.departure_delay_mins if flight.departure_delay_mins is not none else flight.estimated_departure_delay_mins %}
-  🛫 **Scheduled Departure:** {{ flight.scheduled_departure_time_local }}
-  {% if departure_delay is not none %}
-  {% if departure_delay > 0 %}
-    - ⚠️ **Delayed: {{ departure_delay }} minutes**
-  {% elif departure_delay < 0 %}
-    - ✅ **Early: {{ departure_delay | abs }} minutes**
-  {% endif %}
-  {% endif %}
-  {% if flight.real_departure_time_local %}
-    - **Actual Departure:** {{ flight.real_departure_time_local }}
-  {% elif flight.estimated_departure_time_local %}
-    - **Estimated Departure:** {{ flight.estimated_departure_time_local }}
-  {% endif %}
-  {% endif %}
-
-  {% if flight.scheduled_arrival_time_local %} {% set arrival_delay = flight.arrival_delay_mins if flight.arrival_delay_mins is not none else flight.estimated_arrival_delay_mins %}
-  🛬 **Scheduled Arrival:** {{ flight.scheduled_arrival_time_local }}
-  {% if arrival_delay is not none %}
-  {% if arrival_delay > 0 %}
-    - ⚠️ **Delayed: {{ arrival_delay }} minutes**
-  {% elif arrival_delay < 0 %}
-    - ✅ **Early: {{ arrival_delay | abs }} minutes**
-  {% endif %} {% endif %} {% if flight.real_arrival_time_local %}
-    - **Actual Arrival:** {{ flight.real_arrival_time_local }}
-  {% elif flight.estimated_arrival_time_local %}
-    - **Estimated Arrival:** {{ flight.estimated_arrival_time_local }}
-  {% endif %} {% endif %}
-
-  {% if flight.aircraft_model %}
-    **{{ flight.aircraft_model }}** *({{ flight.aircraft_type }})* | **Registration:** {{ flight.aircraft_registration }} {% endif %}
-  {%- set image = flight.large_aircraft_image_link or flight.medium_aircraft_image_link or flight.small_aircraft_image_link or flight.thumbnail_aircraft_image_link %}
-  {% if image %}
-    ![]({{ image }})
-  {% endif %}
-
-  ***
-  
-  {% endif %}
-  {% endfor %}
-  {% else %}
-    No recent flight history.
-  {% endif %}
+  - type: grid
+    cards:
+      - type: vertical-stack
+        cards:
+          - type: custom:decluttering-card
+            template: flight_list_card
+            variables:
+              - sensor_entity: sensor.visible_flights
+              - flights_attribute: flights
+              - card_title: "✈️☁️ Flight Overhead"
+              - empty_message: "No flights overhead at the moment."
+          - type: custom:decluttering-card
+            template: flight_list_card
+            variables:
+              - sensor_entity: sensor.visible_flights
+              - flights_attribute: historic_flights
+              - card_title: "🧾 Last Flights Overhead"
+              - empty_message: "No recent flight history."
 ```
 
 ## Visualising recorded flights on a map card
