@@ -24,8 +24,6 @@ Compared with the upstream project, this fork expands the integration with:
 
 ## Example screenshots
 
-> Replace the placeholder images below with your own screenshots from this fork.
-
 <img width="481" height="892" alt="image" src="https://github.com/user-attachments/assets/e088d40f-fe45-4f25-b3b5-ccbc6af0c889" />
 
 
