@@ -279,6 +279,207 @@ content: >-
   {% endif %}
 ```
 
+## Advanced dashboard card using Decluttering Card
+If you want a more reusable and feature-rich dashboard setup, I use a variable-driven [Decluttering Card](https://github.com/custom-cards/decluttering-card) template for most of my own flight cards.
+
+This makes it easy to reuse the same card for:
+- currently visible flights
+- historic flights
+- different sensor entities
+- different card titles and empty-state messages
+
+It also demonstrates how to use many of the richer fields exposed by this fork, including:
+- `flight_number`
+- `status_icon`
+- `heading_compass`
+- `airline_logo_link`
+- `aircraft_icao`
+- `last_seen_time_formatted`
+- `origin_country_code_flagsapi`
+- `destination_country_code_flagsapi`
+- `trail`
+
+### Requirements
+- [Decluttering Card](https://github.com/custom-cards/decluttering-card)
+- [card-mod](https://github.com/thomasloven/lovelace-card-mod)
+
+### Notes
+- The blocked-flight check uses `Blocked` with a capital `B` because that is how the integration exposes blocked callsigns.
+- Vertical trend calculation relies on timestamped trail data being present.
+- Airline logos and some external links depend on third-party services and may not always resolve for every flight.
+
+### Template example
+```
+decluttering_templates:
+  flight_list_card:
+    default:
+      - sensor_entity: sensor.visible_flights
+      - flights_attribute: flights
+      - card_title: "Flights"
+      - empty_message: "No flights."
+    card:
+      type: markdown
+      title: "[[card_title]]"
+      content: >
+        {% set helicopter_codes = [
+          'A109', 'A139', 'A169', 'EC35', 'EC45', 'AS50', 'AS55', 'AS65', 'EC25', 'EC20', 'EC30', 'EC55',
+          'B06', 'B407', 'B429', 'B505', 'S76', 'S92', 'R44', 'R22', 'MD52', 'H47', 'H64', 'MI8', 'KA32', 'GAZL'
+        ] %}
+
+        {% set config = state_attr('[[sensor_entity]]', 'config') %}
+        {% set altitude_unit = config['altitude_units'].split('(')[-1] | replace(')', '') %}
+        {% set speed_unit = config['speed_units'].split('(')[-1] | replace(')', '') %}
+        {% set distance_unit = config['distance_units'].split('(')[-1] | replace(')', '') %}
+
+        {% set raw_flight_list = state_attr('[[sensor_entity]]', '[[flights_attribute]]') | default([], true) %}
+        {% set flight_list = raw_flight_list | unique(attribute='flight_id') | list %}
+        {% if flight_list and flight_list | count > 0 %}
+        {% for flight in flight_list %}
+
+        {% set aircraft_code = flight.aircraft_type | default('') %}
+        {% set icon = '✈️' %}
+        {% if aircraft_code in helicopter_codes %}
+          {% set icon = '🚁' %}
+        {% endif %}
+
+        {% set trail = flight.trail | default([]) %}
+        {% set vtrend_icon = '➡️' %}
+        {% set vtrend_label = 'Level' %}
+        {% set vtrend_rate = 0 %}
+        {% if trail | count > 1 %}
+          {% set ref_idx = [5, (trail | count - 1)] | min %}
+          {% set alt_now = trail[0].alt | default(flight.altitude, true) %}
+          {% set alt_prev = trail[ref_idx].alt %}
+          {% set dt_sec = trail[0].ts - trail[ref_idx].ts %}
+          {% if dt_sec > 0 %}
+            {% set vtrend_rate = (((alt_now - alt_prev) / dt_sec) * 60) | round(0) %}
+          {% endif %}
+          {% if vtrend_rate > 200 %}
+            {% set vtrend_icon = '⬆️' %}
+            {% set vtrend_label = 'Climbing' %}
+          {% elif vtrend_rate < -200 %}
+            {% set vtrend_icon = '⬇️' %}
+            {% set vtrend_label = 'Descending' %}
+          {% endif %}
+        {% endif %}
+
+        {% set status_dot = {'green': '🟢', 'yellow': '🟡', 'red': '🔴'}.get(flight.status_icon, '⚪') %}
+
+        {% if flight.callsign == 'Blocked' %}
+          {{ status_dot }} 🚫 {{ icon }} [**{{ flight.callsign }}**]({{ flight.flightradar_link }})
+          {% if flight.aircraft_model %}
+          **{{ flight.aircraft_model }}** *({{ flight.aircraft_type }})* | **Registration:** {% if flight.aircraft_registration %}[{{ flight.aircraft_registration }}](https://www.flightradar24.com/data/aircraft/{{ flight.aircraft_registration | lower }}){% else %}{{ flight.aircraft_registration }}{% endif %}
+          📈 **Altitude:** {{ flight.altitude | default(0, true) | round(0) }} {{ altitude_unit }} {{ vtrend_icon }} | **Speed:** {{ flight.ground_speed_kts | default(0, true) }} kts ({{ (flight.ground_speed | default(0, true)) | round(0) }} {{ speed_unit }}) | **Heading:** {{ flight.heading_compass }}
+          {% endif %}
+          {%- set image = flight.large_aircraft_image_link or flight.medium_aircraft_image_link or flight.small_aircraft_image_link or flight.thumbnail_aircraft_image_link %}
+          {% if image %}
+          ![]({{ image }})
+          {% endif %}
+          {% if flight.airline_logo_link %}
+          <img src="{{ flight.airline_logo_link | e }}" alt="{{ flight.airline_name }} logo" style="display:none; background:#fff; border:1px solid rgba(0,0,0,.08); border-radius:6px; padding:2px; max-width:180px; height:auto;" onload="if(this.naturalWidth>8 &amp;&amp; this.naturalHeight>8){this.style.display='inline-block'}else{this.style.display='none'}" onerror="this.style.display='none'">
+          {% endif %}
+
+        {% elif flight.callsign %}
+          {{ status_dot }} {{ icon }} **{{ flight.airline_name }} [**{{ flight.flight_number }}**]({{ flight.flightradar_link }}) (**{{ flight.origin_airport_code }} → {{ flight.destination_airport_code }}**)** {% if flight.last_seen_time_formatted %} | *{{ flight.last_seen_time_formatted }}* {% endif %}
+
+          {% if flight.total_distance and flight.total_distance > 0 %}
+            {%- set bar_width = 20 -%}
+            {%- set plane_pos = max(1, (bar_width * flight.progress_percent / 100) | round | int) -%}
+            <img src="https://flagsapi.com/{{ flight.origin_country_code_flagsapi }}/shiny/16.png" title="{{ flight.origin_country }}"/>**{{ flight.origin_airport_code }}** `{{ '─' * (plane_pos - 1) }}{{ icon }}{{ '─' * (bar_width - plane_pos) }}`<img src="https://flagsapi.com/{{ flight.destination_country_code_flagsapi }}/shiny/16.png" title="{{ flight.destination_country }}"/>**{{ flight.destination_airport_code }}**
+            📏 **Distance:** *{{ flight.distance_traveled }} of {{ flight.total_distance }} {{ distance_unit }} ({{ flight.progress_percent }}%)*
+          {% endif %}
+          📈 **Altitude:** {{ flight.altitude | default(0, true) | round(0) }} {{ altitude_unit }} {{ vtrend_icon }}{% if vtrend_rate != 0 %} *{{ vtrend_label }} {{ vtrend_rate | abs }} ft/min*{% endif %} | **Speed:** {{ flight.ground_speed_kts | default(0, true) }} kts ({{ (flight.ground_speed | default(0, true)) | round(0) }} {{ speed_unit }}) | **Heading:** {{ flight.heading_compass }}
+          {% if flight.total_flight_time_formatted %}
+          🕑 **Total Flight Time:** {{ flight.total_flight_time_formatted }}
+          {% endif %}
+
+          {% if flight.origin_city or flight.origin_country or flight.destination_city or flight.destination_country or flight.origin_airport_name or flight.destination_airport_name %}
+          🌍 {{ flight.origin_city }}, _**{{ flight.origin_country }}**_ → {{ flight.destination_city }}, _**{{ flight.destination_country }}**_
+          🛂 <a href="https://google.co.uk/maps?q={{ flight.origin_latitude }},{{ flight.origin_longitude }}" title="{{ flight.origin_airport_name }}">{{ flight.origin_airport_name | replace('Airport', '') | trim }}</a> → <a href="https://google.co.uk/maps?q={{ flight.destination_latitude }},{{ flight.destination_longitude }}" title="{{ flight.destination_airport_name }}">{{ flight.destination_airport_name | replace('Airport', '') | trim }}</a>
+          {% endif %}
+
+          {% if flight.scheduled_departure_time_local %}
+          {% set departure_delay = flight.departure_delay_mins if flight.departure_delay_mins is not none else flight.estimated_departure_delay_mins %}
+          🛫 **Scheduled Departure:** {{ flight.scheduled_departure_time_local }}
+          {% if departure_delay is not none %}
+          {% if departure_delay > 0 %}
+            - ⚠️ **Delayed: {{ departure_delay }} minutes**
+          {% elif departure_delay < 0 %}
+            - ✅ **Early: {{ departure_delay | abs }} minutes**
+          {% endif %}
+          {% endif %}
+          {% if flight.real_departure_time_local %}
+            - **Actual Departure:** {{ flight.real_departure_time_local }}
+          {% elif flight.estimated_departure_time_local %}
+            - **Estimated Departure:** {{ flight.estimated_departure_time_local }}
+          {% endif %}
+          {% endif %}
+
+          {% if flight.scheduled_arrival_time_local %}
+          {% set arrival_delay = flight.arrival_delay_mins if flight.arrival_delay_mins is not none else flight.estimated_arrival_delay_mins %}
+          🛬 **Scheduled Arrival:** {{ flight.scheduled_arrival_time_local }}
+          {% if arrival_delay is not none %}
+          {% if arrival_delay > 0 %}
+            - ⚠️ **Delayed: {{ arrival_delay }} minutes**
+          {% elif arrival_delay < 0 %}
+            - ✅ **Early: {{ arrival_delay | abs }} minutes**
+          {% endif %}
+          {% endif %}
+          {% if flight.real_arrival_time_local %}
+            - **Actual Arrival:** {{ flight.real_arrival_time_local }}
+          {% elif flight.estimated_arrival_time_local %}
+            - **Estimated Arrival:** {{ flight.estimated_arrival_time_local }}
+          {% endif %}
+          {% endif %}
+
+          {% if flight.aircraft_model %}
+          **{{ flight.aircraft_model }}** *({{ flight.aircraft_type }})* | **Registration:** {% if flight.aircraft_registration %}[{{ flight.aircraft_registration }}](https://www.flightradar24.com/data/aircraft/{{ flight.aircraft_registration | lower }}){% endif %}
+          {% endif %}
+          {% if flight.flight_number %}
+          🔗 [PlaneFinder](https://planefinder.net/flight/number/{{ flight.flight_number }}) · [FlightAware](https://www.flightaware.com/live/flight/{{ flight.airline_icao }}{{ flight.flight_number[2:] }}){% if flight.aircraft_icao %} · [ADS-B](https://globe.adsb.fi/?icao={{ flight.aircraft_icao }}){% endif %} · [AirNav](https://www.airnavradar.com/data/flights/{{ flight.flight_number }})
+          {% endif %}
+          {%- set image = flight.large_aircraft_image_link or flight.medium_aircraft_image_link or flight.small_aircraft_image_link or flight.thumbnail_aircraft_image_link %}
+          {% if image %}
+          ![]({{ image }})
+          {% endif %}
+          {% if flight.airline_logo_link %}
+          <img src="{{ flight.airline_logo_link | e }}" alt="{{ flight.airline_name }} logo" style="display:none; background:#fff; border:1px solid rgba(0,0,0,.08); border-radius:6px; padding:2px; max-width:180px; height:auto;" onload="if(this.naturalWidth>8 &amp;&amp; this.naturalHeight>8){this.style.display='inline-block'}else{this.style.display='none'}" onerror="this.style.display='none'">
+          {% endif %}
+
+          ***
+
+        {% endif %}
+        {% endfor %}
+        {% else %}
+          [[empty_message]]
+        {% endif %}
+      card_mod:
+        style:
+          ha-markdown$: >
+            /* Styles injected into <ha-markdown> shadow root */
+
+            /* Style airline logos from flightradar operators path */
+            img[src*="/data/operators/"],
+            img[src*="/operators/"],
+            img[src*="_logo"] {
+              background: #fff !important;
+              border: 1px solid rgba(0,0,0,.08);
+              border-radius: 6px;
+              padding: 2px;
+              max-width: 180px;
+              height: auto;
+            }
+
+            /* Leave other images untouched */
+            img:not([src*="/data/operators/"]):not([src*="/operators/"]):not([src*="_logo"]) {
+              background: transparent !important;
+              border: none;
+              padding: 0;
+              max-width: 100%;
+              height: auto;
+            }
+```
+
 ## Viewing historic flight information
 If your configuration setting for `historic_flights_max_count` is set to 1 or more, you can utilise the `historic_flights` attribute to view a log of flights that have left your defined FOV cone.
 
