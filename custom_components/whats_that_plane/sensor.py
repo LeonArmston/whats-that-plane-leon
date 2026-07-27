@@ -59,6 +59,9 @@ TIME_SCHEDULED_ARRIVAL = 'time/scheduled/arrival'
 TIME_ESTIMATED_ARRIVAL = 'time/estimated/arrival'
 TIME_REAL_ARRIVAL = 'time/real/arrival'
 
+STATUS_LIVE = 'status/live'
+STATUS_ICON = 'status/icon'
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -262,6 +265,8 @@ class WhatsThatPlaneSensor(CoordinatorEntity, SensorEntity):
             "flight_id": flight_id,
             "flight_number": flight_number,
             "flightradar_link": flightradar_link,
+            "status_live": dpath.util.get(flight, STATUS_LIVE, default=None),
+            "status_icon": dpath.util.get(flight, STATUS_ICON, default=None),
             "airline_name": dpath.util.get(flight, AIRLINE_NAME, default=None),
             "airline_iata": airline_iata,
             "airline_icao": airline_icao,
