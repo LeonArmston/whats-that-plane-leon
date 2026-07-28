@@ -487,7 +487,7 @@ sections:
                   <a href="{{ flight.flightradar_link }}">{{ flight.flight_number }} - {{ flight.airline_name }}</a>
                 {% endfor %}
           - type: iframe
-            url: https://globe.adsb.fi/?enableLabels&trackLabels&zoom=13&hideSideBar&SiteLat=52.29&SiteLon=-1.53
+            url: https://globe.adsb.fi/?enableLabels&trackLabels&zoom=13&hideSideBar&SiteLat=<Your Latitude>&SiteLon=<Your Longtitude>
             aspect_ratio: 100%
           - square: true
             type: grid
