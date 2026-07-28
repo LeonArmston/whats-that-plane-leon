@@ -24,10 +24,12 @@ Compared with the upstream project, this fork expands the integration with:
 
 ## Example screenshots
 
-<img width="481" height="892" alt="image" src="https://github.com/user-attachments/assets/e088d40f-fe45-4f25-b3b5-ccbc6af0c889" />
-
+<img width="506" height="944" alt="image" src="https://github.com/user-attachments/assets/877891d4-7a1c-4b90-9366-56d5f9a6ddc6" />
 
 <img width="483" height="1890" alt="image" src="https://github.com/user-attachments/assets/5f7e3f43-8c37-46b6-a8ae-47adb92aeefb" />
+
+<img width="1583" height="996" alt="image" src="https://github.com/user-attachments/assets/23ac94ce-2ecf-4375-af52-09c3fd0454d9" />
+
 
 ## Installation
 
