@@ -30,15 +30,15 @@ A compact mobile dashboard example showing a currently tracked flight with route
 
 <img width="506" height="944" alt="Mobile Home Assistant dashboard showing a live flight card with route, timing, speed, altitude, and aircraft details" src="https://github.com/user-attachments/assets/877891d4-7a1c-4b90-9366-56d5f9a6ddc6" />
 
-### Mobile stacked flight cards
+### Last x Flights Overheard
 
-A long-form mobile view showing multiple flight cards in a vertical list, demonstrating how the reusable dashboard layout works well for browsing several flights and recent history on smaller screens.
+A long-form mobile view showing the past x flights overhead in a list, demonstrating how the reusable dashboard layout works well for browsing several flights and recent history on smaller screens.
 
 <img width="483" height="1890" alt="Mobile dashboard with multiple stacked flight cards for live and recent aircraft tracking" src="https://github.com/user-attachments/assets/5f7e3f43-8c37-46b6-a8ae-47adb92aeefb" />
 
-### Desktop dashboard and map layout
+### My Dashboard
 
-A wider desktop dashboard layout combining sensor summaries, flight information cards, and a map visualisation to create a more complete aircraft-tracking view inside Home Assistant.
+Here is how I use the flight cards in my Dashboard.
 
 <img width="1583" height="996" alt="Desktop Home Assistant dashboard with flight summary cards and an aircraft map visualisation" src="https://github.com/user-attachments/assets/23ac94ce-2ecf-4375-af52-09c3fd0454d9" />
 
