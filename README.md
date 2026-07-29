@@ -271,11 +271,6 @@ decluttering_templates:
       type: markdown
       title: "[[card_title]]"
       content: >
-        {% set helicopter_codes = [
-          'A109', 'A139', 'A169', 'EC35', 'EC45', 'AS50', 'AS55', 'AS65', 'EC25', 'EC20', 'EC30', 'EC55',
-          'B06', 'B407', 'B429', 'B505', 'S76', 'S92', 'R44', 'R22', 'MD52', 'H47', 'H64', 'MI8', 'KA32', 'GAZL'
-        ] %}
-
         {% set config = state_attr('[[sensor_entity]]', 'config') %}
         {% set altitude_unit = config['altitude_units'].split('(')[-1] | replace(')', '') %}
         {% set speed_unit = config['speed_units'].split('(')[-1] | replace(')', '') %}
@@ -286,11 +281,7 @@ decluttering_templates:
         {% if flight_list and flight_list | count > 0 %}
         {% for flight in flight_list %}
 
-        {% set aircraft_code = flight.aircraft_type | default('') %}
-        {% set icon = '✈️' %}
-        {% if aircraft_code in helicopter_codes %}
-          {% set icon = '🚁' %}
-        {% endif %}
+        {% set icon = '🚁' if flight.aircraft_category == 'Helicopter' else '✈️' %}
 
         {% set trail = flight.trail | default([]) %}
         {% set vtrend_icon = '➡️' %}
@@ -315,92 +306,94 @@ decluttering_templates:
 
         {% set status_dot = {'green': '🟢', 'yellow': '🟡', 'red': '🔴'}.get(flight.status_icon, '⚪') %}
 
-        {% if flight.callsign == 'Blocked' %}
-          {{ status_dot }} 🚫 {{ icon }} [**{{ flight.callsign }}**]({{ flight.flightradar_link }})
-          {% if flight.aircraft_model %}
-          **{{ flight.aircraft_model }}** *({{ flight.aircraft_type }})* | **Registration:** {% if flight.aircraft_registration %}[{{ flight.aircraft_registration }}](https://www.flightradar24.com/data/aircraft/{{ flight.aircraft_registration }}){% else %}Unknown{% endif %} | **Hex/ICAO:** {{ flight.aircraft_icao | default('Unknown') }}
-          📈 **Altitude:** {{ flight.altitude | default(0, true) | round(0) }} {{ altitude_unit }} {{ vtrend_icon }} | **Speed:** {{ flight.ground_speed_kts | default(0, true) }} kts ({{ (flight.ground_speed | default(0, true)) | round(0) }} {{ speed_unit }}) | **Heading:** {{ flight.heading | round(0) }}° ({{ flight.heading_compass | default('Unknown') }})
-          {% endif %}
-          {%- set image = flight.large_aircraft_image_link or flight.medium_aircraft_image_link or flight.small_aircraft_image_link or flight.thumbnail_aircraft_image_link %}
-          {% if image %}
+        {% if flight.callsign == 'blocked' %} {{ status_dot }} 🚫 {{icon}}[**{{
+        flight.callsign }}**]({{ flight.flightradar_link }}) {% if
+        flight.aircraft_model %} **{{ flight.aircraft_model }}** *({{
+        flight.aircraft_type }})* | **Registration:** {% if
+        flight.aircraft_registration %}[{{ flight.aircraft_registration }}](https://www.flightradar24.com/data/aircraft/{{ flight.aircraft_registration | lower }}){% else %}{{
+        flight.aircraft_registration }}{% endif %}
+          📈 **Altitude:** {{ flight.altitude | default(0, true) | round(0) }} {{ altitude_unit }} {{ vtrend_icon }} | **Speed:** {{ flight.ground_speed_kts | default(0, true) }} kts ({{ (flight.ground_speed | default(0, true)) | round(0) }} {{ speed_unit }})  | **Heading:** {{flight.heading_compass}}{% endif %} {%- set image = flight.large_aircraft_image_link or flight.medium_aircraft_image_link or flight.small_aircraft_image_link or flight.thumbnail_aircraft_image_link %} {% if image %}
           ![]({{ image }})
-          {% endif %}
-          {% if flight.airline_logo_link %}
-          <img src="{{ flight.airline_logo_link | e }}" alt="{{ flight.airline_name }} logo" style="display:none; background:#fff; border:1px solid rgba(0,0,0,.08); border-radius:6px; padding:2px; max-width:180px; height:auto;" />
-          {% endif %}
+        {% endif %}
+        {% if flight.airline_logo_link %}
+          <img src="{{ flight.airline_logo_link | e }}" alt="{{ flight.airline_name }} logo" style="display:none; background:#fff; border:1px solid rgba(0,0,0,.08); border-radius:6px; padding:2px; max-width:180px; height:auto;" onload="if(this.naturalWidth>8 &amp;&amp; this.naturalHeight>8){this.style.display='inline-block'}else{this.style.display='none'}" onerror="this.style.display='none'">
+        {% endif %}
 
-        {% elif flight.callsign %}
-          {{ status_dot }} {{ icon }} **{{ flight.airline_name }} [**{{ flight.flight_number }}**]({{ flight.flightradar_link }}) (**{{ flight.origin_airport_code }} → {{ flight.destination_airport_code }}**)**
+        {% elif flight.callsign %} {{ status_dot }} {{icon}} **{{ flight.airline_name }}
+        [**{{ flight.flight_number }}**]({{ flight.flightradar_link }})
+        (**{{ flight.origin_airport_code }} → {{
+        flight.destination_airport_code }}**)** {% if
+        flight.last_seen_time_formatted %} | *{{
+        flight.last_seen_time_formatted }}* {% endif %}
 
-          {% if flight.total_distance and flight.total_distance > 0 %}
-            {%- set bar_width = 20 -%}
-            {%- set plane_pos = max(1, (bar_width * flight.progress_percent / 100) | round | int) -%}
-            <img src="https://flagsapi.com/{{ flight.origin_country_code_flagsapi }}/shiny/16.png" title="{{ flight.origin_country }}"/>**{{ flight.origin_airport_code }}** `{{ '─' * (plane_pos - 1) }}✈{{ '─' * (bar_width - plane_pos) }}` **{{ flight.destination_airport_code }}**<img src="https://flagsapi.com/{{ flight.destination_country_code_flagsapi }}/shiny/16.png" title="{{ flight.destination_country }}"/>
-            📏 **Distance:** *{{ flight.distance_traveled }} of {{ flight.total_distance }} {{ distance_unit }} ({{ flight.progress_percent }}%)*
-          {% endif %}
-          📈 **Altitude:** {{ flight.altitude | default(0, true) | round(0) }} {{ altitude_unit }} {{ vtrend_icon }}{% if vtrend_rate != 0 %} *{{ vtrend_label }} {{ vtrend_rate | abs }} ft/min*{% endif %} | **Speed:** {{ flight.ground_speed_kts | default(0, true) }} kts ({{ (flight.ground_speed | default(0, true)) | round(0) }} {{ speed_unit }}) | **Heading:** {{ flight.heading | round(0) }}° ({{ flight.heading_compass | default('Unknown') }})
+
+        {% if flight.total_distance and flight.total_distance > 0 %}
+          {%- set bar_width = 20 -%}
+          {%- set plane_pos = max(1, (bar_width * flight.progress_percent / 100) | round | int) -%}
+          <img src="https://flagsapi.com/{{ flight.origin_country_code_flagsapi }}/shiny/16.png" title="{{ flight.origin_country }}"/>**{{ flight.origin_airport_code }}** `{{ '─' * (plane_pos - 1) }}{{icon}}{{ '─' * (bar_width - plane_pos) }}`<img src="https://flagsapi.com/{{ flight.destination_country_code_flagsapi }}/shiny/16.png" title='{{ flight.destination_country }}'/>**{{ flight.destination_airport_code }}**
+          📏 **Distance:** *{{ flight.distance_traveled }} of {{ flight.total_distance }} {{ distance_unit }} ({{ flight.progress_percent }}%)*
+        {% endif %}
+          📈 **Altitude:** {{ flight.altitude | default(0, true) | round(0) }} {{ altitude_unit }} {{ vtrend_icon }}{% if vtrend_rate != 0 %} *{{ vtrend_label }} {{ vtrend_rate | abs }} ft/min*{% endif %} | **Speed:** {{ flight.ground_speed_kts | default(0, true) }} kts ({{ (flight.ground_speed | default(0, true)) | round(0) }} {{ speed_unit }}) | **Heading:** {{flight.heading_compass}}
           {% if flight.total_flight_time_formatted %}
           🕑 **Total Flight Time:** {{ flight.total_flight_time_formatted }}
-          {% endif %}
-
-          {% if flight.origin_city or flight.origin_country or flight.destination_city or flight.destination_country or flight.origin_airport_name or flight.destination_airport_name %}
-          🌍 {{ flight.origin_city }}, _**{{ flight.origin_country }}**_ → {{ flight.destination_city }}, _**{{ flight.destination_country }}**_
-          🛂 <a href="https://google.co.uk/maps?q={{ flight.origin_latitude }},{{ flight.origin_longitude }}" title="{{ flight.origin_airport_name }}">{{ flight.origin_airport_name | replace('Airport', 'Apt') }}</a> → <a href="https://google.co.uk/maps?q={{ flight.destination_latitude }},{{ flight.destination_longitude }}" title="{{ flight.destination_airport_name }}">{{ flight.destination_airport_name | replace('Airport', 'Apt') }}</a>
-          {% endif %}
-
-          {% if flight.scheduled_departure_time_local %}
-          {% set departure_delay = flight.departure_delay_mins if flight.departure_delay_mins is not none else flight.estimated_departure_delay_mins %}
-          🛫 **Scheduled Departure:** {{ flight.scheduled_departure_time_local }}
-          {% if departure_delay is not none %}
-          {% if departure_delay > 0 %}
-            - ⚠️ **Delayed: {{ departure_delay }} minutes**
-          {% elif departure_delay < 0 %}
-            - ✅ **Early: {{ departure_delay | abs }} minutes**
-          {% endif %}
-          {% endif %}
-          {% if flight.real_departure_time_local %}
-            - **Actual Departure:** {{ flight.real_departure_time_local }}
-          {% elif flight.estimated_departure_time_local %}
-            - **Estimated Departure:** {{ flight.estimated_departure_time_local }}
-          {% endif %}
-          {% endif %}
-
-          {% if flight.scheduled_arrival_time_local %}
-          {% set arrival_delay = flight.arrival_delay_mins if flight.arrival_delay_mins is not none else flight.estimated_arrival_delay_mins %}
-          🛬 **Scheduled Arrival:** {{ flight.scheduled_arrival_time_local }}
-          {% if arrival_delay is not none %}
-          {% if arrival_delay > 0 %}
-            - ⚠️ **Delayed: {{ arrival_delay }} minutes**
-          {% elif arrival_delay < 0 %}
-            - ✅ **Early: {{ arrival_delay | abs }} minutes**
-          {% endif %}
-          {% endif %}
-          {% if flight.real_arrival_time_local %}
-            - **Actual Arrival:** {{ flight.real_arrival_time_local }}
-          {% elif flight.estimated_arrival_time_local %}
-            - **Estimated Arrival:** {{ flight.estimated_arrival_time_local }}
-          {% endif %}
-          {% endif %}
-
-          {% if flight.aircraft_model %}
-          **{{ flight.aircraft_model }}** *({{ flight.aircraft_type }})* | **Category:** {{ flight.aircraft_category | default('Unknown') }} | **Registration:** {% if flight.aircraft_registration %}[{{ flight.aircraft_registration }}](https://www.flightradar24.com/data/aircraft/{{ flight.aircraft_registration }}){% else %}Unknown{% endif %} | **Hex/ICAO:** {{ flight.aircraft_icao | default('Unknown') }}
-          {% endif %}
-          {% if flight.flight_number %}
-          🔗 [PlaneFinder](https://planefinder.net/flight/number/{{ flight.flight_number }}) · [FlightAware](https://www.flightaware.com/live/flight/{{ flight.airline_icao }}{{ flight.flight_number | replace(' ', '') }})
-          {% endif %}
-          {%- set image = flight.large_aircraft_image_link or flight.medium_aircraft_image_link or flight.small_aircraft_image_link or flight.thumbnail_aircraft_image_link %}
-          {% if image %}
-          ![]({{ image }})
-          {% endif %}
-          {% if flight.airline_logo_link %}
-          <img src="{{ flight.airline_logo_link | e }}" alt="{{ flight.airline_name }} logo" style="display:none; background:#fff; border:1px solid rgba(0,0,0,.08); border-radius:6px; padding:2px; max-width:180px; height:auto;" />
-          {% endif %}
-
-          ***
 
         {% endif %}
-        {% endfor %}
-        {% else %}
+
+
+        {% if flight.origin_city or flight.origin_country or
+        flight.destination_city or flight.destination_country or
+        flight.origin_airport_name or flight.destination_airport_name %}
+          🌍 {{ flight.origin_city }}, _**{{ flight.origin_country }}**_ → {{ flight.destination_city }}, _**{{ flight.destination_country }}**_
+          🛂 <a href="https://google.co.uk/maps?q={{ flight.origin_latitude}},{{flight.origin_longitude}}" title="{{flight.origin_airport_name}}">{{ flight.origin_airport_name | replace('Airport', '') | trim }}</a> → <a href="https://google.co.uk/maps?q={{ flight.destination_latitude}},{{flight.destination_longitude}}" title="{{flight.destination_airport_name}}">{{ flight.destination_airport_name | replace('Airport', '') | trim }}</a>
+        {% endif %}
+
+        {% if flight.scheduled_departure_time_local %} {% set
+        departure_delay = flight.departure_delay_mins if
+        flight.departure_delay_mins is not none else
+        flight.estimated_departure_delay_mins %} 🛫 **Scheduled
+        Departure:** {{ flight.scheduled_departure_time_local }} {% if
+        departure_delay is not none %} {% if departure_delay > 0 %}
+          - ⚠️ **Delayed: {{ departure_delay }} minutes**
+        {% elif departure_delay < 0 %}
+          - ✅ **Early: {{ departure_delay | abs }} minutes**
+        {% endif %} {% endif %} {% if flight.real_departure_time_local %}
+          - **Actual Departure:** {{ flight.real_departure_time_local }}
+        {% elif flight.estimated_departure_time_local %}
+          - **Estimated Departure:** {{ flight.estimated_departure_time_local }}
+        {% endif %} {% endif %}
+
+        {% if flight.scheduled_arrival_time_local %} {% set arrival_delay
+        = flight.arrival_delay_mins if flight.arrival_delay_mins is not
+        none else flight.estimated_arrival_delay_mins %} 🛬 **Scheduled
+        Arrival:** {{ flight.scheduled_arrival_time_local }} {% if
+        arrival_delay is not none %} {% if arrival_delay > 0 %}
+          - ⚠️ **Delayed: {{ arrival_delay }} minutes**
+        {% elif arrival_delay < 0 %}
+          - ✅ **Early: {{ arrival_delay | abs }} minutes**
+        {% endif %} {% endif %} {% if flight.real_arrival_time_local %}
+          - **Actual Arrival:** {{ flight.real_arrival_time_local }}
+        {% elif flight.estimated_arrival_time_local %}
+          - **Estimated Arrival:** {{ flight.estimated_arrival_time_local }}
+        {% endif %} {% endif %}
+
+        {% if flight.aircraft_model %}
+          **{{ flight.aircraft_model }}** *({{ flight.aircraft_type }})* | **Registration:** {% if flight.aircraft_registration %}[{{ flight.aircraft_registration }}](https://www.flightradar24.com/data/aircraft/{{ flight.aircraft_registration | lower }}){% endif %} {% endif %}
+        {% if flight.flight_number %}
+          🔗 [PlaneFinder](https://planefinder.net/flight/number/{{ flight.flight_number }}) · [FlightAware](https://www.flightaware.com/live/flight/{{ flight.airline_icao }}{{ flight.flight_number[2:] }}){% if flight.aircraft_icao %} · [adsb.fi](https://globe.adsb.fi/?icao={{ flight.aircraft_icao }}){% endif %} · [AirNav](https://www.airnavradar.com/data/flights/{{ flight.flight_number }})
+        {% endif %}
+        {%- set image = flight.large_aircraft_image_link or
+        flight.medium_aircraft_image_link or
+        flight.small_aircraft_image_link or
+        flight.thumbnail_aircraft_image_link %} {% if image %}
+          ![]({{ image }})
+        {% endif %}
+        {% if flight.airline_logo_link %}
+          <img src="{{ flight.airline_logo_link | e }}" alt="{{ flight.airline_name }} logo" style="display:none; background:#fff; border:1px solid rgba(0,0,0,.08); border-radius:6px; padding:2px; max-width:180px; height:auto;" onload="if(this.naturalWidth>8 &amp;&amp; this.naturalHeight>8){this.style.display='inline-block'}else{this.style.display='none'}" onerror="this.style.display='none'">
+        {% endif %}
+
+        ***
+
+        {% endif %} {% endfor %} {% else %}
           [[empty_message]]
         {% endif %}
       card_mod:
@@ -408,7 +401,8 @@ decluttering_templates:
           ha-markdown$: >
             /* Styles injected into <ha-markdown> shadow root */
 
-            /* Style airline logos from flightradar operators path */
+            /* 1) Style only airline logos from flightradar operators path */
+
             img[src*="/data/operators/"],
             img[src*="/operators/"],
             img[src*="_logo"] {
@@ -416,11 +410,12 @@ decluttering_templates:
               border: 1px solid rgba(0,0,0,.08);
               border-radius: 6px;
               padding: 2px;
-              max-width: 180px;
+              max-width: 180px; /* logo size */
               height: auto;
             }
 
-            /* Leave other images untouched */
+            /* 2) Make sure other images remain untouched */
+
             img:not([src*="/data/operators/"]):not([src*="/operators/"]):not([src*="_logo"]) {
               background: transparent !important;
               border: none;
