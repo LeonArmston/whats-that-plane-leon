@@ -1,3 +1,4 @@
+import re
 import dpath.util
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -61,6 +62,46 @@ TIME_REAL_ARRIVAL = 'time/real/arrival'
 
 STATUS_LIVE = 'status/live'
 STATUS_ICON = 'status/icon'
+
+HELICOPTER_CALLSIGN_PATTERN = re.compile(
+    r"^(LIFELN|POLICE|MEDIC|LL|HELI|SAR|SGR|ZULU|SLAYR|CRNGE|"
+    r"VORTX|SHARK|REAPER|APACHE|FIRE|RESCUE|PNTHR|VICTR|CHX|"
+    r"NHC|UKP|NPAS|AAC|AMBUSH|BARON|ARCTIC|COAST|KUST|RAINBOW|"
+    r"SAMU|DRAG|PEGASO|HEMS)",
+    re.IGNORECASE,
+)
+HELICOPTER_MODEL_PATTERN = re.compile(
+    r"(HELICOPTER|EUROCOPTER|ROBINSON|AGUSTA|BELL\s|SIKORSKY|"
+    r"AEROSPATIALE|MD\sHELICOPTERS|GUIMBAL|KAMOV|LEONARDO|"
+    r"WESTLAND|APACHE|CHINOOK|GAZELLE|MERLIN|WILDCAT|LYNX|"
+    r"PUMA|BOEING\sAH|AH\-64)",
+    re.IGNORECASE,
+)
+HELICOPTER_TYPE_CODE_PATTERN = re.compile(
+    r"^(R22|R44|R66|EC|AS[35]|H1[23467]|H6[045]|H47|AW|"
+    r"B[0245]|UH|CH|A1[0-9]|H500|MI[0-9]|NH90|SK[0-9]|"
+    r"EH10|LYNX|G2CA|S76|S92|EC45)",
+    re.IGNORECASE,
+)
+
+
+def is_helicopter(callsign, aircraft_model, aircraft_type) -> bool:
+    """Classify a flight as a helicopter based on callsign, model name, or type code.
+
+    Checking all three catches cases a type-code list alone would miss, e.g. a
+    police/medical helicopter broadcasting an unusual or missing type code.
+    """
+    callsign = callsign or ""
+    aircraft_model = aircraft_model or ""
+    aircraft_type = aircraft_type or ""
+
+    if HELICOPTER_CALLSIGN_PATTERN.match(callsign):
+        return True
+    if HELICOPTER_MODEL_PATTERN.search(aircraft_model):
+        return True
+    if HELICOPTER_TYPE_CODE_PATTERN.match(aircraft_type):
+        return True
+    return False
 
 
 async def async_setup_entry(
@@ -179,6 +220,9 @@ class WhatsThatPlaneSensor(CoordinatorEntity, SensorEntity):
         callsign = dpath.util.get(flight, CALLSIGN, default=None) or flight.get('callsign')
         flight_id = dpath.util.get(flight, FLIGHT_ID, default=None)
         flight_number = dpath.util.get(flight, FLIGHT_NUMBER, default=None)
+        aircraft_model = dpath.util.get(flight, AIRCRAFT_MODEL, default=None)
+        aircraft_type = dpath.util.get(flight, AIRCRAFT_TYPE, default=None)
+        aircraft_category = "Helicopter" if is_helicopter(callsign, aircraft_model, aircraft_type) else "Airplane"
         heading = flight.get(HEADING)
         heading_compass = self._heading_to_compass(heading)
         origin_country_code = dpath.util.get(flight, ORIGIN_COUNTRY_CODE, default=None)
@@ -271,8 +315,9 @@ class WhatsThatPlaneSensor(CoordinatorEntity, SensorEntity):
             "airline_iata": airline_iata,
             "airline_icao": airline_icao,
             "airline_logo_link": airline_logo_link,
-            "aircraft_model": dpath.util.get(flight, AIRCRAFT_MODEL, default=None),
-            "aircraft_type": dpath.util.get(flight, AIRCRAFT_TYPE, default=None),
+            "aircraft_model": aircraft_model,
+            "aircraft_type": aircraft_type,
+            "aircraft_category": aircraft_category,
             "aircraft_icao": dpath.util.get(flight, AIRCRAFT_ICAO, default=None),
             "aircraft_registration": dpath.util.get(flight, AIRCRAFT_REGISTRATION, default=None),
             "large_aircraft_image_link": dpath.util.get(flight, LARGE_AIRCRAFT_IMAGE, default=None),
