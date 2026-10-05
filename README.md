@@ -523,11 +523,15 @@ sections:
 
 ## Visualising recorded flights on a map card
 
-It's possible to visualise recorded flights and their flight trails on a map card to achieve the map card shown in the video demonstration below. This is a great way to make your dashboard more interactive and to visually track both current and recent flights.
+It's possible to visualise recorded flights and their flight trails on a map card to achieve the map card shown in the video demonstration below. This is a great way to make your dashboard more interactive and gives a useful visual representation of both currently visible and recently tracked flights.
 
 https://github.com/user-attachments/assets/43a910b3-c2c1-41b1-8d23-74874c7dbaf3
 
 > ⚠️ Ensure that you have at least one configured entry before trying to use the map card.
+>
+> ⚠️ If the map card shows an API error or a CARTO watermark, CARTO now requires an API key for the raster basemaps used by this card. You can register for a free API key at `https://carto.com/basemaps/apikey/`, then add it under **Settings → Devices & services → What's that plane?! → Configure** in the `carto_api_key` field.
+
+To add the map card to dashboards that you have control over and are able to add cards to:
 
 To add the map card to dashboards that you have control over and are able to add cards to:
 
