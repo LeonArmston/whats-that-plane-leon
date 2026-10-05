@@ -8,6 +8,8 @@ class WhatsThatPlaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input=None):
         if user_input is not None:
+            if "carto_api_key" in user_input:
+                user_input["carto_api_key"] = user_input["carto_api_key"].strip()
             location_name = user_input.get("location_name", "").strip()
             title = "Visible Flights"
             if location_name:
@@ -25,6 +27,7 @@ class WhatsThatPlaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Required("facing_direction", default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=360)),
             vol.Required("fov_cone", default=90): vol.All(vol.Coerce(int), vol.Range(min=1, max=360)),
             vol.Required("update_interval", default=10): vol.All(vol.Coerce(int), vol.Range(min=1)),
+            vol.Optional("carto_api_key", default=""): str,
             vol.Optional("filter_flight_altitude_ft_minimum", default=0): vol.Coerce(int),
             vol.Optional("filter_flight_altitude_ft_maximum", default=60000): vol.Coerce(int),
             vol.Optional("hold_flight_data_seconds", default=0): vol.Coerce(int),
@@ -44,6 +47,8 @@ class WhatsThatPlaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class WhatsThatPlaneOptionsFlow(config_entries.OptionsFlow):
     async def async_step_init(self, user_input=None):
         if user_input is not None:
+            if "carto_api_key" in user_input:
+                user_input["carto_api_key"] = user_input["carto_api_key"].strip()
             new_options = {**self.config_entry.options, **user_input}
 
             location_name = new_options.get("location_name", "").strip()
@@ -65,6 +70,7 @@ class WhatsThatPlaneOptionsFlow(config_entries.OptionsFlow):
             vol.Required("facing_direction", default=current_config.get("facing_direction")): vol.All(vol.Coerce(int), vol.Range(min=0, max=360)),
             vol.Required("fov_cone", default=current_config.get("fov_cone")): vol.All(vol.Coerce(int), vol.Range(min=1, max=360)),
             vol.Required("update_interval", default=current_config.get("update_interval")): vol.All(vol.Coerce(int), vol.Range(min=1)),
+            vol.Optional("carto_api_key", default=current_config.get("carto_api_key", "")): str,
             vol.Optional("filter_flight_altitude_ft_minimum", default=current_config.get("filter_flight_altitude_ft_minimum", 0)): vol.Coerce(int),
             vol.Optional("filter_flight_altitude_ft_maximum", default=current_config.get("filter_flight_altitude_ft_maximum", 60000)): vol.Coerce(int),
             vol.Optional("hold_flight_data_seconds", default=current_config.get("hold_flight_data_seconds", 0)): vol.Coerce(int),

@@ -428,13 +428,7 @@ class WhatsThatPlaneMap extends HTMLElement {
         });
 
 
-        const tileUrl = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
-        const attribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
-
-        L.tileLayer(tileUrl, {
-            attribution: attribution,
-            maxZoom: 18,
-        }).addTo(this._map);
+        this._updateTileLayer();
 
         this._map.whenReady(() => {
             loaderElement.style.display = 'none';
@@ -497,6 +491,25 @@ class WhatsThatPlaneMap extends HTMLElement {
     }
   }
 
+  _updateTileLayer() {
+      const cartoApiKey = this._state?.attributes?.config?.carto_api_key?.trim()
+          || this._config?.carto_api_key?.trim()
+          || '';
+      const tileUrl = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
+          + (cartoApiKey ? `?key=${encodeURIComponent(cartoApiKey)}` : '');
+
+      if (!this._tileLayer) {
+          const attribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
+          this._tileLayer = L.tileLayer(tileUrl, {
+              attribution: attribution,
+              maxZoom: 18,
+          }).addTo(this._map);
+      } else if (tileUrl !== this._tileUrl) {
+          this._tileLayer.setUrl(tileUrl);
+      }
+      this._tileUrl = tileUrl;
+  }
+
   _saveLayerState(layerName, isVisible) {
       const savedLayers = JSON.parse(localStorage.getItem('whats-that-plane-layers')) || {};
       savedLayers[layerName] = isVisible;
@@ -546,6 +559,7 @@ class WhatsThatPlaneMap extends HTMLElement {
     }
 
     this._state = entityState;
+    this._updateTileLayer();
 
     if (!this.staticElementsDrawn) this.drawStaticElements();
     this.drawFlightElements();
