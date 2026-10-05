@@ -91,6 +91,7 @@ To initially configure the integration, define the information below. This can b
 | `facing_direction`                  | ✅       | `0`                               | The degree bearing of the viewing direction. e.g. `0` = North, `90` = East, `180` = South, `270` = West. |
 | `fov_cone`                          | ✅       | `90`                              | The number of degrees the field of view cone should be. |
 | `update_interval`                   | ✅       | `10`                              | The number of seconds between each poll for flight information. |
+| `carto_api_key`                     | ❌       | `YOUR_CARTO_KEY`                  | CARTO Basemaps API key used by the map card for raster tiles. Surrounding whitespace is trimmed. |
 | `filter_flight_altitude_ft_minimum` | ❌       | `0`                               | The minimum flight altitude in feet for flights to be recorded. |
 | `filter_flight_altitude_ft_maximum` | ❌       | `60000`                           | The maximum flight altitude in feet for flights to be recorded. |
 | `hold_flight_data_seconds`          | ❌       | `0`                               | The total number of seconds to keep a flight's data after it leaves your field of view. This can act as a grace period if a flight temporarily drops in and out of the cone. |
@@ -98,6 +99,10 @@ To initially configure the integration, define the information below. This can b
 | `distance_units`                    | ❌       | `metric (kilometres (km))`        | The unit of measurement to record flight distance in. |
 | `altitude_units`                    | ❌       | `imperial (feet (ft))`            | The unit of measurement to record flight altitude in. |
 | `speed_units`                       | ❌       | `imperial (miles per hour (mph))` | The unit of measurement to record flight speed in. |
+
+Set `carto_api_key` during initial setup or under **Settings → Devices & services → What's that plane?! → Configure** (the integration Options dialog). Obtain a key from [CARTO Basemaps](https://carto.com/basemaps/apikey). The map card automatically uses it; `carto_api_key` in the Lovelace card configuration is also supported as a fallback when no integration key is set. Without a key, the existing tile URL is used, but CARTO may require a key or show a watermark. Hard-refresh the browser after updating the integration to load the updated card and clear cached tiles.
+
+The key is exposed in sensor attributes and browser tile requests, so it is visible to Home Assistant clients. Use CARTO's key restrictions where appropriate and do not share your key.
 
 > 💡 **TIP**: To make the initial configuration process easier, you can use the map card to easily visualise your FOV cone settings while you adjust the initial settings. See [Visualising recorded flights on a map card](#visualising-recorded-flights-on-a-map-card).
 
@@ -120,6 +125,7 @@ The sensor exposes three top-level attributes:
 | `radius_km` | Search radius from the viewing location. |
 | `facing_direction` | Bearing used as the centre of the field-of-view cone. |
 | `fov_cone` | Width of the field-of-view cone in degrees. |
+| `carto_api_key` | CARTO Basemaps API key used by the map card, or an empty string when unset. |
 | `distance_units` | Selected distance unit label used by the integration. |
 | `altitude_units` | Selected altitude unit label used by the integration. |
 | `speed_units` | Selected speed unit label used by the integration. |
