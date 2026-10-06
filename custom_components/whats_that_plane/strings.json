@@ -1,0 +1,26 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "carto_api_key": "CARTO API key (required for map tiles)"
+        },
+        "data_description": {
+          "carto_api_key": "Get a key at https://carto.com/basemaps/apikey/. You can finish setup without a key, but map tiles will not load until one is set."
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "carto_api_key": "CARTO API key (required for map tiles)"
+        },
+        "data_description": {
+          "carto_api_key": "Get a key at https://carto.com/basemaps/apikey/. Map tiles require a key; alternatively, set carto_api_key in the map card config."
+        }
+      }
+    }
+  }
+}

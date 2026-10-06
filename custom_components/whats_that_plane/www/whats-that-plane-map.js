@@ -34,6 +34,12 @@ class WhatsThatPlaneMap extends HTMLElement {
           z-index: 0;
           visibility: hidden;
         }
+        #api-key-message {
+          padding: 8px 12px;
+          background-color: var(--card-background-color, #fff);
+          color: var(--primary-text-color, #000);
+          font-family: var(--primary-font-family, sans-serif);
+        }
         #loader {
           position: absolute;
           top: 50%;
@@ -139,6 +145,7 @@ class WhatsThatPlaneMap extends HTMLElement {
         @keyframes lds-ring { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
       </style>
       <link rel="stylesheet" href="/local/community/whats_that_plane/leaflet.css"/>
+      <div id="api-key-message" role="status" hidden>CARTO API key required. Add it under Settings → Devices &amp; services → What's that plane?! → Configure, or set <code>carto_api_key</code> in the card config.</div>
       <div id="loader"><div class="lds-ring"><div></div><div></div><div></div><div></div></div><p>Loading Map...</p></div>
       <div id="map-container">
         <div id="map"></div>
@@ -495,11 +502,18 @@ class WhatsThatPlaneMap extends HTMLElement {
       const cartoApiKey = this._state?.attributes?.config?.carto_api_key?.trim()
           || this._config?.carto_api_key?.trim()
           || '';
-      const tileUrl = cartoApiKey
-          ? `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(cartoApiKey)}`
-          : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+      this.shadowRoot.getElementById('api-key-message').hidden = !!cartoApiKey;
+      if (!cartoApiKey) {
+          if (this._tileLayer) {
+              this._map.removeLayer(this._tileLayer);
+              this._tileLayer = null;
+          }
+          this._tileUrl = null;
+          return;
+      }
+      const tileUrl = `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(cartoApiKey)}`;
       const attribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          + (cartoApiKey ? ' &copy; <a href="https://carto.com/attributions">CARTO</a>' : '');
+          + ' &copy; <a href="https://carto.com/attributions">CARTO</a>';
 
       if (!this._tileLayer) {
           this._tileLayer = L.tileLayer(tileUrl, {

@@ -37,6 +37,10 @@ def setup_frontend_files(hass: HomeAssistant) -> None:
         source_file = os.path.join(source_dir, filename)
         destination_file = os.path.join(destination_dir, filename)
 
+        if os.path.isdir(source_file):
+            shutil.copytree(source_file, destination_file, dirs_exist_ok=True)
+            continue
+
         should_copy = False
         if not os.path.exists(destination_file):
             should_copy = True
