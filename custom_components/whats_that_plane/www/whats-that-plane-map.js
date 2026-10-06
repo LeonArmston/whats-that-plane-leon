@@ -492,8 +492,8 @@ class WhatsThatPlaneMap extends HTMLElement {
   }
 
   _updateTileLayer() {
-      const cartoApiKey = this._config?.carto_api_key?.trim()
-          || this._state?.attributes?.config?.carto_api_key?.trim()
+      const cartoApiKey = this._state?.attributes?.config?.carto_api_key?.trim()
+          || this._config?.carto_api_key?.trim()
           || '';
       const tileUrl = cartoApiKey
           ? `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(cartoApiKey)}`
