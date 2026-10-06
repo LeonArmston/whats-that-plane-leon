@@ -145,7 +145,7 @@ class WhatsThatPlaneMap extends HTMLElement {
         @keyframes lds-ring { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
       </style>
       <link rel="stylesheet" href="/local/community/whats_that_plane/leaflet.css"/>
-      <div id="api-key-message" role="status" hidden>CARTO API key required. Add it under Settings → Devices &amp; services → What's that plane?! → Configure, or set <code>carto_api_key</code> in the card config.</div>
+      <div id="api-key-message" role="status">CARTO API key required. Add it under Settings → Devices &amp; services → What's that plane?! → Configure, or set <code>carto_api_key</code> in the card config.</div>
       <div id="loader"><div class="lds-ring"><div></div><div></div><div></div><div></div></div><p>Loading Map...</p></div>
       <div id="map-container">
         <div id="map"></div>
@@ -501,7 +501,11 @@ class WhatsThatPlaneMap extends HTMLElement {
   _updateTileLayer() {
       const cartoApiKey = this._state?.attributes?.config?.carto_api_key?.trim()
           || this._config?.carto_api_key?.trim()
+          || this._lastCartoKey
           || '';
+      if (cartoApiKey) this._lastCartoKey = cartoApiKey;
+      const isUnavailable = ['unavailable', 'unknown'].includes(this._state?.state);
+      if (isUnavailable && (this._tileLayer || !cartoApiKey)) return;
       this.shadowRoot.getElementById('api-key-message').hidden = !!cartoApiKey;
       if (!cartoApiKey) {
           if (this._tileLayer) {
@@ -585,7 +589,7 @@ class WhatsThatPlaneMap extends HTMLElement {
   }
 
   drawStaticElements() {
-    const config = this._state.attributes.config;
+    const config = this._state?.attributes?.config;
     if (!config) return;
 
     this.staticElementsDrawn = true;
@@ -622,10 +626,12 @@ class WhatsThatPlaneMap extends HTMLElement {
         });
     };
 
-    processFlights(this._state.attributes.flights, 'visible');
-    processFlights(this._state.attributes.historic_flights, 'historic');
+    const flights = this._state?.attributes?.flights || [];
+    const historicFlights = this._state?.attributes?.historic_flights || [];
+    processFlights(flights, 'visible');
+    processFlights(historicFlights, 'historic');
     
-    const allFlights = (this._state.attributes.flights || []).concat(this._state.attributes.historic_flights || []);
+    const allFlights = flights.concat(historicFlights);
     const allFlightIds = new Set(allFlights.map(f => f.flight_id || f.callsign));
 
     if (this._selectedFlightId && !allFlightIds.has(this._selectedFlightId)) {

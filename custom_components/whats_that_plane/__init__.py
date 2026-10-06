@@ -21,6 +21,12 @@ ORIGIN_LONGITUDE = 'airport/origin/position/longitude'
 DESTINATION_LATITUDE = 'airport/destination/position/latitude'
 DESTINATION_LONGITUDE = 'airport/destination/position/longitude'
 
+def _is_rate_limit_error(error):
+    return (
+        getattr(error, "code", None) == 429
+        or getattr(getattr(error, "response", None), "status_code", None) == 429
+    )
+
 def setup_frontend_files(hass: HomeAssistant) -> None:
     source_dir = os.path.join(os.path.dirname(__file__), 'www')
     destination_dir = hass.config.path(f"www/community/{DOMAIN}")
@@ -175,12 +181,14 @@ class WhatsThatPlaneCoordinator(DataUpdateCoordinator):
         self.scraper = None                           
         self.tracked_flights = {}
         self.historic_flights = []
+        self._normal_update_interval = timedelta(seconds=update_seconds)
+        self._rate_limited = False
 
         super().__init__(
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(seconds=update_seconds),
+            update_interval=self._normal_update_interval,
         )
 
     def _get_flight_details_scraper(self, flight_id: str) -> dict:
@@ -261,12 +269,19 @@ class WhatsThatPlaneCoordinator(DataUpdateCoordinator):
 
                     if flight_id not in self.tracked_flights:
                         _LOGGER.debug(f"New flight in FOV: {flight_id}")
+                    if flight_id not in self.tracked_flights or self.tracked_flights[flight_id].get("details_pending"):
+                        flight_info = self.tracked_flights.setdefault(flight_id, {"data": {}})
+                        flight_details = flight_info["data"]
                         try:
-                            flight_details = await self.hass.async_add_executor_job(self._get_flight_details_scraper, flight.id)
+                            flight_details.update(await self.hass.async_add_executor_job(self._get_flight_details_scraper, flight.id))
                         except Exception as e:
-                            _LOGGER.warning(f"Could not fetch details for {flight_id}: {e}")
-                            flight_details = {}
-                        self.tracked_flights[flight_id] = {"data": flight_details}
+                            flight_info["details_pending"] = _is_rate_limit_error(e)
+                            if flight_info["details_pending"]:
+                                _LOGGER.warning("FR24 is rate limiting (HTTP 429); retrying details for %s on a later poll", flight_id)
+                            else:
+                                _LOGGER.warning(f"Could not fetch details for {flight_id}: {e}")
+                        else:
+                            flight_info.pop("details_pending", None)
                     else:
                         flight_details = self.tracked_flights[flight_id]["data"]
 
@@ -354,7 +369,18 @@ class WhatsThatPlaneCoordinator(DataUpdateCoordinator):
             if len(self.historic_flights) > historic_max_count:
                 self.historic_flights = self.historic_flights[:historic_max_count]
 
+            self.update_interval = self._normal_update_interval
+            self._rate_limited = False
             return list(self.tracked_flights.values())
 
         except Exception as err:
+            if _is_rate_limit_error(err):
+                if not self._rate_limited:
+                    _LOGGER.warning("FR24 is rate limiting (HTTP 429); keeping last flight data and backing off polling")
+                self._rate_limited = True
+                self.update_interval = min(
+                    self.update_interval * 2,
+                    max(self._normal_update_interval, timedelta(minutes=5)),
+                )
+                return list(self.tracked_flights.values())
             raise UpdateFailed(f"Error communicating with API: {err}")
