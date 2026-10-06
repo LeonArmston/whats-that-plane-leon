@@ -16,6 +16,10 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor"]
+MIN_UPDATE_INTERVAL_SECONDS = 10
+DEFAULT_UPDATE_INTERVAL_SECONDS = 60
+DETAILS_CACHE_TTL_SECONDS = 5 * 60
+DETAILS_RETRY_COOLDOWN_SECONDS = 3 * 60
 ORIGIN_LATITUDE = 'airport/origin/position/latitude'
 ORIGIN_LONGITUDE = 'airport/origin/position/longitude'
 DESTINATION_LATITUDE = 'airport/destination/position/latitude'
@@ -176,12 +180,34 @@ class WhatsThatPlaneCoordinator(DataUpdateCoordinator):
         else:
             raise ValueError("Coordinator must be initialized with either an entry or a config dict.")
 
-        update_seconds = self._config.get("update_interval", 60)
+        update_seconds = self._config.get("update_interval", DEFAULT_UPDATE_INTERVAL_SECONDS)
+        try:
+            if (
+                not isinstance(update_seconds, (int, float))
+                or isinstance(update_seconds, bool)
+                or not math.isfinite(update_seconds)
+            ):
+                raise ValueError("Invalid update interval")
+            update_interval = timedelta(seconds=update_seconds)
+        except (ValueError, OverflowError):
+            _LOGGER.warning(
+                "Invalid update_interval %r; using default %s seconds",
+                update_seconds, DEFAULT_UPDATE_INTERVAL_SECONDS,
+            )
+            update_interval = timedelta(seconds=DEFAULT_UPDATE_INTERVAL_SECONDS)
+        else:
+            if update_seconds < MIN_UPDATE_INTERVAL_SECONDS:
+                _LOGGER.warning(
+                    "update_interval %s is below minimum %s; clamping to %s seconds",
+                    update_seconds, MIN_UPDATE_INTERVAL_SECONDS, MIN_UPDATE_INTERVAL_SECONDS,
+                )
+                update_interval = timedelta(seconds=MIN_UPDATE_INTERVAL_SECONDS)
+
         self.fr_api = FlightRadar24API()
         self.scraper = None                           
         self.tracked_flights = {}
         self.historic_flights = []
-        self._normal_update_interval = timedelta(seconds=update_seconds)
+        self._normal_update_interval = update_interval
         self._rate_limited = False
 
         super().__init__(
@@ -208,6 +234,13 @@ class WhatsThatPlaneCoordinator(DataUpdateCoordinator):
     @property
     def config(self):
         return self._config
+
+    def _details_are_fresh(self, flight_info: dict) -> bool:
+        updated_at = flight_info.get("details_updated_at")
+        return updated_at is not None and time.time() - updated_at < DETAILS_CACHE_TTL_SECONDS
+
+    def _details_retry_allowed(self, flight_info: dict) -> bool:
+        return time.time() >= flight_info.get("details_retry_after", 0)
 
     def _calculate_bearing(self, your_latitude, your_longitude, flight_latitude, flight_longitude):
         delta_longitude = math.radians(flight_longitude - your_longitude)
@@ -269,21 +302,27 @@ class WhatsThatPlaneCoordinator(DataUpdateCoordinator):
 
                     if flight_id not in self.tracked_flights:
                         _LOGGER.debug(f"New flight in FOV: {flight_id}")
-                    if flight_id not in self.tracked_flights or self.tracked_flights[flight_id].get("details_pending"):
-                        flight_info = self.tracked_flights.setdefault(flight_id, {"data": {}})
-                        flight_details = flight_info["data"]
+
+                    flight_info = self.tracked_flights.setdefault(flight_id, {"data": {}})
+                    flight_details = flight_info["data"]
+                    # Even flights without cached details must respect the 429 cooldown.
+                    if not self._details_are_fresh(flight_info) and self._details_retry_allowed(flight_info):
                         try:
                             flight_details.update(await self.hass.async_add_executor_job(self._get_flight_details_scraper, flight.id))
                         except Exception as e:
                             flight_info["details_pending"] = _is_rate_limit_error(e)
                             if flight_info["details_pending"]:
-                                _LOGGER.warning("FR24 is rate limiting (HTTP 429); retrying details for %s on a later poll", flight_id)
+                                flight_info["details_retry_after"] = time.time() + DETAILS_RETRY_COOLDOWN_SECONDS
+                                _LOGGER.warning(
+                                    "FR24 is rate limiting (HTTP 429); delaying detail retry for %s by %s seconds",
+                                    flight_id, DETAILS_RETRY_COOLDOWN_SECONDS,
+                                )
                             else:
                                 _LOGGER.warning(f"Could not fetch details for {flight_id}: {e}")
                         else:
+                            flight_info["details_updated_at"] = time.time()
                             flight_info.pop("details_pending", None)
-                    else:
-                        flight_details = self.tracked_flights[flight_id]["data"]
+                            flight_info.pop("details_retry_after", None)
 
                     flight_details['latitude'] = flight.latitude
                     flight_details['longitude'] = flight.longitude
