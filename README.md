@@ -91,7 +91,7 @@ To initially configure the integration, define the information below. This can b
 | `facing_direction`                  | ✅       | `0`                               | The degree bearing of the viewing direction. e.g. `0` = North, `90` = East, `180` = South, `270` = West. |
 | `fov_cone`                          | ✅       | `90`                              | The number of degrees the field of view cone should be. |
 | `update_interval`                   | ✅       | `10`                              | The number of seconds between each poll for flight information. |
-| `carto_api_key`                     | ❌       | `YOUR_CARTO_KEY`                  | CARTO Basemaps API key used by the map card for raster tiles. Surrounding whitespace is trimmed. |
+| `carto_api_key`                     | ❌       | `YOUR_CARTO_KEY`                  | Required for map card tiles, but may be left empty during integration setup. Surrounding whitespace is trimmed. |
 | `filter_flight_altitude_ft_minimum` | ❌       | `0`                               | The minimum flight altitude in feet for flights to be recorded. |
 | `filter_flight_altitude_ft_maximum` | ❌       | `60000`                           | The maximum flight altitude in feet for flights to be recorded. |
 | `hold_flight_data_seconds`          | ❌       | `0`                               | The total number of seconds to keep a flight's data after it leaves your field of view. This can act as a grace period if a flight temporarily drops in and out of the cone. |
@@ -100,7 +100,7 @@ To initially configure the integration, define the information below. This can b
 | `altitude_units`                    | ❌       | `imperial (feet (ft))`            | The unit of measurement to record flight altitude in. |
 | `speed_units`                       | ❌       | `imperial (miles per hour (mph))` | The unit of measurement to record flight speed in. |
 
-Set `carto_api_key` during initial setup or under **Settings → Devices & services → What's that plane?! → Configure** (the integration Options dialog). CARTO raster basemaps now require an API key; register for a free key at [CARTO Basemaps](https://carto.com/basemaps/apikey/). The map card automatically uses it in preference to the Lovelace card's `carto_api_key`, which is used only when no integration key is set. Without a key, the map uses OpenStreetMap tiles, so existing installs continue working without reconfiguration.
+Set `carto_api_key` during initial setup or under **Settings → Devices & services → What's that plane?! → Configure** (the integration Options dialog). CARTO raster basemaps require an API key; register for a free key at [CARTO Basemaps](https://carto.com/basemaps/apikey/). The map card automatically uses it in preference to the Lovelace card's `carto_api_key`, which is used only when no integration key is set. Without a key, the card shows a key-required message and does not request map tiles; planes and paths remain available.
 
 The key is exposed in sensor attributes and browser tile requests, so it is visible to Home Assistant clients. Use CARTO's key restrictions where appropriate and do not share your key.
 
@@ -529,11 +529,11 @@ https://github.com/user-attachments/assets/43a910b3-c2c1-41b1-8d23-74874c7dbaf3
 
 > ⚠️ Ensure that you have at least one configured entry before trying to use the map card.
 >
-> ⚠️ If the map card shows an API error or a CARTO watermark, CARTO now requires an API key for the raster basemaps used by this card. You can register for a free API key at `https://carto.com/basemaps/apikey/`, then add it under **Settings → Devices & services → What's that plane?! → Configure** in the `carto_api_key` field.
+> ⚠️ The map card requires CARTO with an API key for its raster basemap. You can register for a free API key at [CARTO Basemaps](https://carto.com/basemaps/apikey/), then add it under **Settings → Devices & services → What's that plane?! → Configure** in the `carto_api_key` field. Without a key, the card shows a key-required message and does not request map tiles.
 >
-> Browsers may cache old watermarked tiles for up to 24 hours. Hard-refresh after adding a key or updating the map card.
+> Browsers may cache tiles for up to 24 hours. Hard-refresh after adding or changing the key.
 
-Without a key, the map uses OpenStreetMap tiles. To set a key for an individual card when no integration key is configured, use:
+To set a key for an individual card when no integration key is configured, use:
 
 ```yaml
 type: custom:whats-that-plane-map
