@@ -495,16 +495,21 @@ class WhatsThatPlaneMap extends HTMLElement {
       const cartoApiKey = this._state?.attributes?.config?.carto_api_key?.trim()
           || this._config?.carto_api_key?.trim()
           || '';
-      const tileUrl = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
-          + (cartoApiKey ? `?key=${encodeURIComponent(cartoApiKey)}` : '');
+      const tileUrl = cartoApiKey
+          ? `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(cartoApiKey)}`
+          : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+      const attribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          + (cartoApiKey ? ' &copy; <a href="https://carto.com/attributions">CARTO</a>' : '');
 
       if (!this._tileLayer) {
-          const attribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
           this._tileLayer = L.tileLayer(tileUrl, {
               attribution: attribution,
               maxZoom: 18,
           }).addTo(this._map);
       } else if (tileUrl !== this._tileUrl) {
+          this._map.attributionControl.removeAttribution(this._tileLayer.options.attribution);
+          this._tileLayer.options.attribution = attribution;
+          this._map.attributionControl.addAttribution(attribution);
           this._tileLayer.setUrl(tileUrl);
       }
       this._tileUrl = tileUrl;

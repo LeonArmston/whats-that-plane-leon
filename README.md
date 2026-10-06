@@ -100,7 +100,7 @@ To initially configure the integration, define the information below. This can b
 | `altitude_units`                    | ❌       | `imperial (feet (ft))`            | The unit of measurement to record flight altitude in. |
 | `speed_units`                       | ❌       | `imperial (miles per hour (mph))` | The unit of measurement to record flight speed in. |
 
-Set `carto_api_key` during initial setup or under **Settings → Devices & services → What's that plane?! → Configure** (the integration Options dialog). Obtain a key from [CARTO Basemaps](https://carto.com/basemaps/apikey). The map card automatically uses it; `carto_api_key` in the Lovelace card configuration is also supported as a fallback when no integration key is set. Without a key, the existing tile URL is used, but CARTO may require a key or show a watermark. Hard-refresh the browser after updating the integration to load the updated card and clear cached tiles.
+Set `carto_api_key` during initial setup or under **Settings → Devices & services → What's that plane?! → Configure** (the integration Options dialog). CARTO raster basemaps now require an API key; register for a free key at [CARTO Basemaps](https://carto.com/basemaps/apikey/). The map card automatically uses it in preference to the Lovelace card's `carto_api_key`, which is used only when no integration key is set. Without a key, the map uses OpenStreetMap tiles, so existing installs continue working without reconfiguration.
 
 The key is exposed in sensor attributes and browser tile requests, so it is visible to Home Assistant clients. Use CARTO's key restrictions where appropriate and do not share your key.
 
@@ -530,6 +530,16 @@ https://github.com/user-attachments/assets/43a910b3-c2c1-41b1-8d23-74874c7dbaf3
 > ⚠️ Ensure that you have at least one configured entry before trying to use the map card.
 >
 > ⚠️ If the map card shows an API error or a CARTO watermark, CARTO now requires an API key for the raster basemaps used by this card. You can register for a free API key at `https://carto.com/basemaps/apikey/`, then add it under **Settings → Devices & services → What's that plane?! → Configure** in the `carto_api_key` field.
+>
+> Browsers may cache old watermarked tiles for up to 24 hours. Hard-refresh after adding a key or updating the map card.
+
+Without a key, the map uses OpenStreetMap tiles. To set a key for an individual card when no integration key is configured, use:
+
+```yaml
+type: custom:whats-that-plane-map
+entity: sensor.visible_flights
+carto_api_key: "YOUR_KEY"
+```
 
 To add the map card to dashboards that you have control over and are able to add cards to:
 
