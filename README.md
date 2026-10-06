@@ -90,7 +90,7 @@ To initially configure the integration, define the information below. This can b
 | `radius_km`                         | ✅       | `5`                               | The radius distance boundary from your current location. e.g. `5` = 5km |
 | `facing_direction`                  | ✅       | `0`                               | The degree bearing of the viewing direction. e.g. `0` = North, `90` = East, `180` = South, `270` = West. |
 | `fov_cone`                          | ✅       | `90`                              | The number of degrees the field of view cone should be. |
-| `update_interval`                   | ✅       | `10`                              | The number of seconds between each poll for flight information. |
+| `update_interval`                   | ✅       | `10`                              | The number of seconds between each poll for flight information (minimum 10; invalid values fall back to 60). |
 | `carto_api_key`                     | ❌       | `YOUR_CARTO_KEY`                  | Required for map card tiles, but may be left empty during integration setup. Surrounding whitespace is trimmed. |
 | `filter_flight_altitude_ft_minimum` | ❌       | `0`                               | The minimum flight altitude in feet for flights to be recorded. |
 | `filter_flight_altitude_ft_maximum` | ❌       | `60000`                           | The maximum flight altitude in feet for flights to be recorded. |
@@ -107,6 +107,8 @@ The key is exposed in sensor attributes and browser tile requests, so it is visi
 > 💡 **TIP**: To make the initial configuration process easier, you can use the map card to easily visualise your FOV cone settings while you adjust the initial settings. See [Visualising recorded flights on a map card](#visualising-recorded-flights-on-a-map-card).
 
 After configuring the integration, a new sensor named `sensor.visible_flights` will be created. This updates at the frequency defined by `update_interval` and exposes both live and historic flight data.
+
+Flight details are cached for five minutes while live position data continues updating each poll. If a detail request receives HTTP 429, retries for that flight are delayed for three minutes to reduce FlightRadar24 rate limiting.
 
 ## Sensor data model
 
