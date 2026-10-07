@@ -6,10 +6,12 @@ import math
 import time
 import dpath.util
 from datetime import timedelta
+from email.utils import parsedate_to_datetime
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, CoreState, Event
 from homeassistant.const import EVENT_HOMEASSISTANT_START
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from FlightRadarAPI import FlightRadar24API
 from geopy.distance import geodesic
 from .const import DOMAIN
@@ -20,6 +22,12 @@ MIN_UPDATE_INTERVAL_SECONDS = 10
 DEFAULT_UPDATE_INTERVAL_SECONDS = 60
 DETAILS_CACHE_TTL_SECONDS = 5 * 60
 DETAILS_RETRY_COOLDOWN_SECONDS = 3 * 60
+PHOTO_CACHE_TTL_SECONDS = 24 * 60 * 60
+PHOTO_EMPTY_CACHE_TTL_SECONDS = 6 * 60 * 60
+PHOTO_RETRY_COOLDOWN_SECONDS = 3 * 60
+PHOTO_REQUEST_INTERVAL_SECONDS = 0.25
+PHOTO_CACHE_MAX_COUNT = 256
+PHOTO_PENDING_MAX_COUNT = 16
 ORIGIN_LATITUDE = 'airport/origin/position/latitude'
 ORIGIN_LONGITUDE = 'airport/origin/position/longitude'
 DESTINATION_LATITUDE = 'airport/destination/position/latitude'
@@ -145,6 +153,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
+        await hass.data[DOMAIN][entry.entry_id].async_cancel_photo_tasks()
         hass.data[DOMAIN].pop(entry.entry_id)
     return unload_ok
 
@@ -211,6 +220,11 @@ class WhatsThatPlaneCoordinator(DataUpdateCoordinator):
         self._rate_limited = False
         self._feed_rate_limit_started_at = None
         self._feed_rate_limit_failures = 0
+        self._planespotters_cache = {}
+        self._planespotters_tasks = {}
+        self._planespotters_semaphore = asyncio.Semaphore(1)
+        self._planespotters_retry_after = 0
+        self._planespotters_next_request_at = 0
 
         super().__init__(
             hass,
@@ -243,6 +257,117 @@ class WhatsThatPlaneCoordinator(DataUpdateCoordinator):
 
     def _details_retry_allowed(self, flight_info: dict) -> bool:
         return time.time() >= flight_info.get("details_retry_after", 0)
+
+    def _schedule_planespotters_photo(self, flight, flight_info):
+        if not self.config.get("use_planespotters_photos", False):
+            return
+        hex_code = dpath.util.get(flight_info["data"], "aircraft/hex", default=None)
+        hex_code = hex_code or getattr(flight, "icao_24bit", None)
+        if not isinstance(hex_code, str):
+            return
+        hex_code = hex_code.strip().lower()
+        if len(hex_code) != 6 or any(char not in "0123456789abcdef" for char in hex_code):
+            return
+        flight_info["photo_hex"] = hex_code
+        cached = self._planespotters_cache.get(hex_code)
+        now = time.monotonic()
+        if cached and now < cached["expires_at"]:
+            flight_info["data"]["planespotters"] = cached["photo"]
+            return
+        if (
+            now < self._planespotters_retry_after
+            or hex_code in self._planespotters_tasks
+            or len(self._planespotters_tasks) >= PHOTO_PENDING_MAX_COUNT
+        ):
+            return
+        task = self.hass.async_create_background_task(
+            self._async_fetch_planespotters_photo(hex_code),
+            f"{DOMAIN}_photo_{hex_code}",
+        )
+        self._planespotters_tasks[hex_code] = task
+        task.add_done_callback(lambda completed: self._planespotters_tasks.pop(hex_code, None))
+
+    async def _async_fetch_planespotters_photo(self, hex_code):
+        async with self._planespotters_semaphore:
+            if time.monotonic() < self._planespotters_retry_after:
+                return
+            delay = self._planespotters_next_request_at - time.monotonic()
+            if delay > 0:
+                await asyncio.sleep(delay)
+            self._planespotters_next_request_at = time.monotonic() + PHOTO_REQUEST_INTERVAL_SECONDS
+            photo = {}
+            cache_seconds = PHOTO_RETRY_COOLDOWN_SECONDS
+            try:
+                session = async_get_clientsession(self.hass)
+                async with session.get(
+                    f"https://api.planespotters.net/pub/photos/hex/{hex_code}",
+                    headers={"User-Agent": "WhatsThatPlaneHA (https://github.com/LeonArmston/whats-that-plane-leon)"},
+                    timeout=10,
+                ) as response:
+                    if response.status == 429:
+                        retry_after = response.headers.get("Retry-After", "")
+                        try:
+                            retry_seconds = float(retry_after)
+                        except (ValueError, TypeError):
+                            try:
+                                retry_seconds = parsedate_to_datetime(retry_after).timestamp() - time.time()
+                            except (ValueError, TypeError, OverflowError):
+                                retry_seconds = 0
+                        if not math.isfinite(retry_seconds):
+                            retry_seconds = 0
+                        cache_seconds = max(PHOTO_RETRY_COOLDOWN_SECONDS, retry_seconds)
+                        self._planespotters_retry_after = time.monotonic() + cache_seconds
+                        _LOGGER.warning(
+                            "Planespotters is rate limiting (HTTP 429); pausing photo lookups for %.0f seconds; "
+                            "live flight polling is unaffected",
+                            cache_seconds,
+                        )
+                    else:
+                        response.raise_for_status()
+                        payload = await response.json()
+                        if not isinstance(payload, dict) or not isinstance(payload.get("photos", []), list):
+                            raise ValueError("Invalid Planespotters photo response")
+                        for candidate in payload.get("photos", []):
+                            if not isinstance(candidate, dict):
+                                continue
+                            thumbnail = candidate.get("thumbnail_large") or candidate.get("thumbnail") or {}
+                            if not isinstance(thumbnail, dict):
+                                continue
+                            link = thumbnail.get("src")
+                            page = candidate.get("link")
+                            photographer = candidate.get("photographer")
+                            if (
+                                isinstance(link, str) and link.startswith("https://")
+                                and isinstance(page, str) and page.startswith("https://")
+                                and isinstance(photographer, str) and photographer.strip()
+                            ):
+                                photo = {"link": link, "photographer": photographer, "page": page}
+                                break
+                        cache_seconds = PHOTO_CACHE_TTL_SECONDS if photo else PHOTO_EMPTY_CACHE_TTL_SECONDS
+            except Exception as err:
+                _LOGGER.debug("Could not fetch Planespotters photo for %s: %s", hex_code, err)
+
+            if hex_code not in self._planespotters_cache and len(self._planespotters_cache) >= PHOTO_CACHE_MAX_COUNT:
+                self._planespotters_cache.pop(next(iter(self._planespotters_cache)))
+            self._planespotters_cache[hex_code] = {
+                "photo": photo,
+                "expires_at": time.monotonic() + cache_seconds,
+            }
+            updated = False
+            for flight_info in list(self.tracked_flights.values()) + self.historic_flights:
+                if flight_info.get("photo_hex") == hex_code:
+                    flight_info["data"]["planespotters"] = photo
+                    updated = True
+            if updated:
+                self.async_update_listeners()
+
+    async def async_cancel_photo_tasks(self):
+        tasks = list(self._planespotters_tasks.values())
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._planespotters_tasks.clear()
 
     def _archive_flights(self, flight_ids):
         for flight_id in flight_ids:
@@ -412,6 +537,7 @@ class WhatsThatPlaneCoordinator(DataUpdateCoordinator):
                     flight_details['progress_percent'] = progress_percent
                     
                     self.tracked_flights[flight_id]["last_seen"] = time.time()
+                    self._schedule_planespotters_photo(flight, flight_info)
 
             expired_flight_ids = []
             for flight_id, flight_info in self.tracked_flights.items():

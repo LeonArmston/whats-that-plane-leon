@@ -1,9 +1,12 @@
 import ast
+import asyncio
+import json
 import logging
 import math
 import time
 import unittest
 from datetime import timedelta
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -16,11 +19,51 @@ class FakeCoordinator:
     def __init__(self, hass, logger, *, name, update_interval):
         self.hass = hass
         self.update_interval = update_interval
+        self.listener_updates = 0
+
+    def async_update_listeners(self):
+        self.listener_updates += 1
 
 
 class FakeHass:
     async def async_add_executor_job(self, function, *args):
         return function(*args)
+
+    def async_create_background_task(self, coroutine, name):
+        return asyncio.create_task(coroutine, name=name)
+
+
+class FakePhotoResponse:
+    def __init__(self, payload=None, status=200, headers=None, gate=None):
+        self.payload = payload if payload is not None else {"photos": []}
+        self.status = status
+        self.headers = headers or {}
+        self.gate = gate
+
+    async def __aenter__(self):
+        if self.gate is not None:
+            await self.gate.wait()
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    def raise_for_status(self):
+        if self.status >= 400:
+            raise RuntimeError(f"HTTP {self.status}")
+
+    async def json(self):
+        return self.payload
+
+
+class FakePhotoSession:
+    def __init__(self, response):
+        self.response = response
+        self.calls = []
+
+    def get(self, url, **kwargs):
+        self.calls.append((url, kwargs))
+        return self.response
 
 
 class RateLimitError(Exception):
@@ -80,6 +123,9 @@ def load_coordinator():
         "timedelta": timedelta,
         "math": math,
         "time": time,
+        "asyncio": asyncio,
+        "parsedate_to_datetime": parsedate_to_datetime,
+        "async_get_clientsession": lambda hass: hass.photo_session,
         "geodesic": distance_between,
         "dpath": SimpleNamespace(util=SimpleNamespace(get=nested_get, new=nested_new)),
     }
@@ -116,6 +162,195 @@ class CoordinatorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.coordinator.fr_api.flights = [self.flight]
         self.coordinator._get_flight_details_scraper = lambda flight_id: {}
+        self.flight.icao_24bit = "ABC123"
+        self.coordinator.hass.photo_session = FakePhotoSession(FakePhotoResponse({"photos": [{
+            "thumbnail_large": {"src": "https://example.com/aircraft.jpg"},
+            "photographer": "Test Photographer",
+            "link": "https://www.planespotters.net/photo/123",
+        }]}))
+
+    async def asyncTearDown(self):
+        await self.coordinator.async_cancel_photo_tasks()
+
+    async def test_photos_are_disabled_by_default(self):
+        await self.coordinator._async_update_data()
+        self.assertEqual(self.coordinator._planespotters_tasks, {})
+        self.assertEqual(self.coordinator.hass.photo_session.calls, [])
+
+    async def test_photo_lookup_does_not_block_live_poll(self):
+        self.coordinator.config["use_planespotters_photos"] = True
+        gate = asyncio.Event()
+        self.coordinator.hass.photo_session.response.gate = gate
+        data = await asyncio.wait_for(self.coordinator._async_update_data(), timeout=1)
+        self.assertEqual(len(data), 1)
+        task = self.coordinator._planespotters_tasks["abc123"]
+        self.assertFalse(task.done())
+        gate.set()
+        await task
+        self.assertEqual(data[0]["data"]["planespotters"]["photographer"], "Test Photographer")
+        self.assertEqual(self.coordinator.listener_updates, 1)
+
+    async def test_photo_cache_reuses_aircraft_result(self):
+        self.coordinator.config["use_planespotters_photos"] = True
+        await self.coordinator._async_update_data()
+        await self.coordinator._planespotters_tasks["abc123"]
+        self.flight.id = "another-flight"
+        data = await self.coordinator._async_update_data()
+        self.assertEqual(len(self.coordinator.hass.photo_session.calls), 1)
+        self.assertEqual(data[0]["data"]["planespotters"]["link"], "https://example.com/aircraft.jpg")
+
+    async def test_photo_arriving_after_exit_enriches_history(self):
+        self.coordinator.config["use_planespotters_photos"] = True
+        gate = asyncio.Event()
+        self.coordinator.hass.photo_session.response.gate = gate
+        await self.coordinator._async_update_data()
+        task = self.coordinator._planespotters_tasks["abc123"]
+        self.coordinator.fr_api.flights = []
+        self.assertEqual(await self.coordinator._async_update_data(), [])
+        gate.set()
+        await task
+        self.assertEqual(self.coordinator.historic_flights[0]["data"]["planespotters"]["photographer"], "Test Photographer")
+        self.assertEqual(self.coordinator.tracked_flights, {})
+
+    async def test_empty_photo_result_is_cached(self):
+        self.coordinator.config["use_planespotters_photos"] = True
+        self.coordinator.hass.photo_session.response = FakePhotoResponse()
+        await self.coordinator._async_update_data()
+        await self.coordinator._planespotters_tasks["abc123"]
+        await self.coordinator._async_update_data()
+        self.assertEqual(len(self.coordinator.hass.photo_session.calls), 1)
+        self.assertEqual(self.coordinator._planespotters_cache["abc123"]["photo"], {})
+
+    async def test_invalid_hex_does_not_request_photo(self):
+        self.coordinator.config["use_planespotters_photos"] = True
+        self.flight.icao_24bit = "not-a-hex"
+        await self.coordinator._async_update_data()
+        self.assertEqual(self.coordinator._planespotters_tasks, {})
+
+    async def test_photo_rate_limit_cooldown_does_not_change_polling(self):
+        self.coordinator.config["use_planespotters_photos"] = True
+        self.coordinator.hass.photo_session.response = FakePhotoResponse(status=429, headers={"Retry-After": "600"})
+        clock = SimpleNamespace(time=time.time, monotonic=lambda: 1000)
+        self.coordinator._async_update_data.__func__.__globals__["time"] = clock
+        await self.coordinator._async_update_data()
+        await self.coordinator._planespotters_tasks["abc123"]
+        self.assertEqual(self.coordinator._planespotters_retry_after, 1600)
+        self.flight.icao_24bit = "def456"
+        clock.monotonic = lambda: 1010
+        self.assertEqual(len(await self.coordinator._async_update_data()), 1)
+        self.assertEqual(len(self.coordinator.hass.photo_session.calls), 1)
+        self.assertEqual(self.coordinator.update_interval, timedelta(seconds=10))
+        self.assertFalse(self.coordinator._rate_limited)
+
+    async def test_photo_failure_does_not_affect_live_flights(self):
+        self.coordinator.config["use_planespotters_photos"] = True
+        self.coordinator.hass.photo_session.response = FakePhotoResponse(status=503)
+        await self.coordinator._async_update_data()
+        await self.coordinator._planespotters_tasks["abc123"]
+        self.assertEqual(len(await self.coordinator._async_update_data()), 1)
+        self.assertEqual(len(self.coordinator.hass.photo_session.calls), 1)
+
+    async def test_unload_cancels_photo_requests(self):
+        self.coordinator.config["use_planespotters_photos"] = True
+        self.coordinator.hass.photo_session.response.gate = asyncio.Event()
+        await self.coordinator._async_update_data()
+        task = self.coordinator._planespotters_tasks["abc123"]
+        await self.coordinator.async_cancel_photo_tasks()
+        self.assertTrue(task.cancelled())
+        self.assertEqual(self.coordinator._planespotters_tasks, {})
+
+    async def test_photo_cache_expires_after_one_day(self):
+        self.coordinator.config["use_planespotters_photos"] = True
+        clock = SimpleNamespace(time=time.time, monotonic=lambda: 1000)
+        self.coordinator._async_update_data.__func__.__globals__["time"] = clock
+        await self.coordinator._async_update_data()
+        await self.coordinator._planespotters_tasks["abc123"]
+        self.assertEqual(self.coordinator._planespotters_cache["abc123"]["expires_at"], 87400)
+        clock.monotonic = lambda: 87401
+        await self.coordinator._async_update_data()
+        await self.coordinator._planespotters_tasks["abc123"]
+        self.assertEqual(len(self.coordinator.hass.photo_session.calls), 2)
+
+    async def test_duplicate_aircraft_share_one_pending_lookup(self):
+        self.coordinator.config["use_planespotters_photos"] = True
+        other_flight = SimpleNamespace(**vars(self.flight))
+        other_flight.id = "other-flight"
+        self.coordinator.fr_api.flights.append(other_flight)
+        data = await self.coordinator._async_update_data()
+        self.assertEqual(len(self.coordinator._planespotters_tasks), 1)
+        await self.coordinator._planespotters_tasks["abc123"]
+        self.assertEqual(len(self.coordinator.hass.photo_session.calls), 1)
+        self.assertTrue(all(flight["data"]["planespotters"]["photographer"] for flight in data))
+
+    async def test_queued_photo_lookups_respect_shared_cooldown(self):
+        self.coordinator.config["use_planespotters_photos"] = True
+        self.coordinator.hass.photo_session.response = FakePhotoResponse(status=429)
+        other_flight = SimpleNamespace(**vars(self.flight))
+        other_flight.id = "other-flight"
+        other_flight.icao_24bit = "def456"
+        self.coordinator.fr_api.flights.append(other_flight)
+        await self.coordinator._async_update_data()
+        await asyncio.gather(*self.coordinator._planespotters_tasks.values())
+        self.assertEqual(len(self.coordinator.hass.photo_session.calls), 1)
+        self.assertEqual(len(self.coordinator.tracked_flights), 2)
+
+    async def test_photos_without_credit_are_not_used(self):
+        self.coordinator.config["use_planespotters_photos"] = True
+        self.coordinator.hass.photo_session.response.payload["photos"][0].pop("photographer")
+        await self.coordinator._async_update_data()
+        await self.coordinator._planespotters_tasks["abc123"]
+        self.assertEqual(self.coordinator._planespotters_cache["abc123"]["photo"], {})
+
+    async def test_malformed_photo_payload_is_isolated(self):
+        self.coordinator.config["use_planespotters_photos"] = True
+        self.coordinator.hass.photo_session.response.payload = []
+        await self.coordinator._async_update_data()
+        await self.coordinator._planespotters_tasks["abc123"]
+        self.assertEqual(self.coordinator._planespotters_cache["abc123"]["photo"], {})
+        self.assertEqual(len(self.coordinator.tracked_flights), 1)
+
+    async def test_photo_cache_and_pending_work_are_bounded(self):
+        self.coordinator.config["use_planespotters_photos"] = True
+        self.coordinator._planespotters_cache = {
+            f"{index:06x}": {"photo": {}, "expires_at": 0} for index in range(256)
+        }
+        await self.coordinator._async_update_data()
+        await self.coordinator._planespotters_tasks["abc123"]
+        self.assertEqual(len(self.coordinator._planespotters_cache), 256)
+        self.assertNotIn("000000", self.coordinator._planespotters_cache)
+        self.coordinator.hass.photo_session.response.gate = asyncio.Event()
+        self.coordinator.fr_api.flights = [
+            SimpleNamespace(**{**vars(self.flight), "id": str(index), "icao_24bit": f"{index + 256:06x}"})
+            for index in range(32)
+        ]
+        self.assertEqual(len(await self.coordinator._async_update_data()), 32)
+        self.assertEqual(len(self.coordinator._planespotters_tasks), 16)
+
+    async def test_sensor_photo_fields_preserve_attribution(self):
+        tree = ast.parse(SOURCE.with_name("sensor.py").read_text(encoding="utf-8"))
+        formatter = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "_format_flight_data")
+        output = next(node.value for node in formatter.body if isinstance(node, ast.Return) and isinstance(node.value, ast.Dict))
+        fields = {"planespotters_photo_link", "planespotters_photographer", "planespotters_photo_page"}
+        selected = [(key, value) for key, value in zip(output.keys, output.values) if key.value in fields]
+        projected = ast.copy_location(
+            ast.Dict(keys=[key for key, value in selected], values=[value for key, value in selected]), output
+        )
+        flight = {"planespotters": {"link": "image", "photographer": "Author", "page": "page"}}
+        namespace = {"flight": flight, "dpath": SimpleNamespace(util=SimpleNamespace(get=nested_get))}
+        data = eval(compile(ast.Expression(projected), "sensor.py", "eval"), namespace)
+        self.assertEqual(data, {
+            "planespotters_photo_link": "image", "planespotters_photographer": "Author", "planespotters_photo_page": "page",
+        })
+        namespace["flight"] = {}
+        self.assertTrue(all(value is None for value in eval(compile(ast.Expression(projected), "sensor.py", "eval"), namespace).values()))
+
+    async def test_photo_setting_translations_are_consistent(self):
+        strings = json.loads(SOURCE.with_name("strings.json").read_text(encoding="utf-8"))
+        translation = json.loads((SOURCE.parent / "translations" / "en.json").read_text(encoding="utf-8"))
+        self.assertEqual(strings, translation)
+        for section, step in [("config", "user"), ("options", "init")]:
+            self.assertIn("Planespotters", strings[section]["step"][step]["data"]["use_planespotters_photos"])
+            self.assertIn("credit", strings[section]["step"][step]["data_description"]["use_planespotters_photos"])
 
     async def test_outside_radius_moves_to_history(self):
         self.assertEqual(len(await self.coordinator._async_update_data()), 1)

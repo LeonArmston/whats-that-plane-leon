@@ -3,10 +3,12 @@
     "step": {
       "user": {
         "data": {
-          "carto_api_key": "CARTO API key (required for map tiles)"
+          "carto_api_key": "CARTO API key (required for map tiles)",
+          "use_planespotters_photos": "Use Planespotters aircraft photos"
         },
         "data_description": {
-          "carto_api_key": "Get a key at https://carto.com/basemaps/apikey/. You can finish setup without a key, but map tiles will not load until one is set."
+          "carto_api_key": "Get a key at https://carto.com/basemaps/apikey/. You can finish setup without a key, but map tiles will not load until one is set.",
+          "use_planespotters_photos": "Fetch optional aircraft photos in the background. Dashboard cards must show the returned photographer credit and link to the photo page."
         }
       }
     }
@@ -15,10 +17,12 @@
     "step": {
       "init": {
         "data": {
-          "carto_api_key": "CARTO API key (required for map tiles)"
+          "carto_api_key": "CARTO API key (required for map tiles)",
+          "use_planespotters_photos": "Use Planespotters aircraft photos"
         },
         "data_description": {
-          "carto_api_key": "Get a key at https://carto.com/basemaps/apikey/. Map tiles require a key; alternatively, set carto_api_key in the map card config."
+          "carto_api_key": "Get a key at https://carto.com/basemaps/apikey/. Map tiles require a key; alternatively, set carto_api_key in the map card config.",
+          "use_planespotters_photos": "Fetch optional aircraft photos in the background. Dashboard cards must show the returned photographer credit and link to the photo page."
         }
       }
     }

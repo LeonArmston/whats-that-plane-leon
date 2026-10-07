@@ -92,6 +92,7 @@ To initially configure the integration, define the information below. This can b
 | `fov_cone`                          | ✅       | `90`                              | The number of degrees the field of view cone should be. |
 | `update_interval`                   | ✅       | `10`                              | The number of seconds between each poll for flight information (minimum 10; invalid values fall back to 60). |
 | `carto_api_key`                     | ❌       | `YOUR_CARTO_KEY`                  | Required for map card tiles, but may be left empty during integration setup. Surrounding whitespace is trimmed. |
+| `use_planespotters_photos`          | ❌       | `false`                           | Fetch alternative aircraft photos from Planespotters.net in the background. Disabled by default; photo credit and a link to the photo page must be displayed. |
 | `filter_flight_altitude_ft_minimum` | ❌       | `0`                               | The minimum flight altitude in feet for flights to be recorded. |
 | `filter_flight_altitude_ft_maximum` | ❌       | `60000`                           | The maximum flight altitude in feet for flights to be recorded. |
 | `hold_flight_data_seconds`          | ❌       | `0`                               | The total number of seconds to keep a flight's data after it leaves your field of view. This can act as a grace period if a flight temporarily drops in and out of the cone. |
@@ -109,6 +110,10 @@ The key is exposed in sensor attributes and browser tile requests, so it is visi
 After configuring the integration, a new sensor named `sensor.visible_flights` will be created. This updates at the frequency defined by `update_interval` and exposes both live and historic flight data.
 
 Flight details are cached for five minutes while live position data continues updating each poll. If a detail request receives HTTP 429, retries for that flight are delayed for three minutes to reduce FlightRadar24 rate limiting.
+
+Enable **Use Planespotters aircraft photos** during setup or in the integration's Configure dialog to fetch optional photos by aircraft ICAO hex. Requests run in the background without delaying flight polling. Photos are cached in memory for 24 hours, no-photo results for six hours, and failures for three minutes; caches reset on reload or restart. Photo requests are serialized and spaced, and a Planespotters 429 pauses only photo lookups, respecting longer `Retry-After` values.
+
+The existing FlightRadar24 image attributes remain unchanged. Updated dashboard examples below prefer `planespotters_photo_link` when available and otherwise use FlightRadar24 images. Existing custom cards need to use the new attribute and display `planespotters_photographer` with a link to `planespotters_photo_page`; enabling the option alone does not change an existing card. Background results also enrich retained historic flights without making them live again.
 
 ## Sensor data model
 
@@ -128,6 +133,7 @@ The sensor exposes three top-level attributes:
 | `facing_direction` | Bearing used as the centre of the field-of-view cone. |
 | `fov_cone` | Width of the field-of-view cone in degrees. |
 | `carto_api_key` | CARTO Basemaps API key used by the map card, or an empty string when unset. |
+| `use_planespotters_photos` | Whether optional background Planespotters photo lookups are enabled. |
 | `distance_units` | Selected distance unit label used by the integration. |
 | `altitude_units` | Selected altitude unit label used by the integration. |
 | `speed_units` | Selected speed unit label used by the integration. |
@@ -164,6 +170,9 @@ Every entry in `flights` and `historic_flights` can expose the following fields,
 | `medium_aircraft_image_link` | Medium aircraft image URL. |
 | `small_aircraft_image_link` | Small aircraft image URL. |
 | `thumbnail_aircraft_image_link` | Thumbnail aircraft image URL. |
+| `planespotters_photo_link` | Alternative aircraft photo URL, or null when disabled, unavailable, or still loading. |
+| `planespotters_photographer` | Photographer credit to display whenever the Planespotters photo is shown. |
+| `planespotters_photo_page` | Original Planespotters photo page to link from the image and credit. |
 
 #### Position, motion, and route progress
 
@@ -320,8 +329,13 @@ decluttering_templates:
         flight.aircraft_type }})* | **Registration:** {% if
         flight.aircraft_registration %}[{{ flight.aircraft_registration }}](https://www.flightradar24.com/data/aircraft/{{ flight.aircraft_registration | lower }}){% else %}{{
         flight.aircraft_registration }}{% endif %}
-          📈 **Altitude:** {{ flight.altitude | default(0, true) | round(0) }} {{ altitude_unit }} {{ vtrend_icon }} | **Speed:** {{ flight.ground_speed_kts | default(0, true) }} kts ({{ (flight.ground_speed | default(0, true)) | round(0) }} {{ speed_unit }})  | **Heading:** {{flight.heading_compass}}{% endif %} {%- set image = flight.large_aircraft_image_link or flight.medium_aircraft_image_link or flight.small_aircraft_image_link or flight.thumbnail_aircraft_image_link %} {% if image %}
+          📈 **Altitude:** {{ flight.altitude | default(0, true) | round(0) }} {{ altitude_unit }} {{ vtrend_icon }} | **Speed:** {{ flight.ground_speed_kts | default(0, true) }} kts ({{ (flight.ground_speed | default(0, true)) | round(0) }} {{ speed_unit }})  | **Heading:** {{flight.heading_compass}}{% endif %} {%- set image = (flight.planespotters_photo_link | default(none)) or flight.large_aircraft_image_link or flight.medium_aircraft_image_link or flight.small_aircraft_image_link or flight.thumbnail_aircraft_image_link %} {% if image %}
+          {% if flight.planespotters_photo_link | default(none) %}
+          <a href="{{ flight.planespotters_photo_page | e }}"><img src="{{ image | e }}" alt="Aircraft photo"></a>
+          Photo by <a href="{{ flight.planespotters_photo_page | e }}">{{ flight.planespotters_photographer | e }}</a> / Planespotters.net
+          {% else %}
           ![]({{ image }})
+          {% endif %}
         {% endif %}
         {% if flight.airline_logo_link %}
           <img src="{{ flight.airline_logo_link | e }}" alt="{{ flight.airline_name }} logo" style="display:none; background:#fff; border:1px solid rgba(0,0,0,.08); border-radius:6px; padding:2px; max-width:180px; height:auto;" onload="if(this.naturalWidth>8 &amp;&amp; this.naturalHeight>8){this.style.display='inline-block'}else{this.style.display='none'}" onerror="this.style.display='none'">
@@ -389,11 +403,16 @@ decluttering_templates:
         {% if flight.flight_number %}
           🔗 [PlaneFinder](https://planefinder.net/flight/number/{{ flight.flight_number }}) · [FlightAware](https://www.flightaware.com/live/flight/{{ flight.airline_icao }}{{ flight.flight_number[2:] }}){% if flight.aircraft_icao %} · [adsb.fi](https://globe.adsb.fi/?icao={{ flight.aircraft_icao }}){% endif %} · [AirNav](https://www.airnavradar.com/data/flights/{{ flight.flight_number }})
         {% endif %}
-        {%- set image = flight.large_aircraft_image_link or
+        {%- set image = (flight.planespotters_photo_link | default(none)) or flight.large_aircraft_image_link or
         flight.medium_aircraft_image_link or
         flight.small_aircraft_image_link or
         flight.thumbnail_aircraft_image_link %} {% if image %}
+          {% if flight.planespotters_photo_link | default(none) %}
+          <a href="{{ flight.planespotters_photo_page | e }}"><img src="{{ image | e }}" alt="Aircraft photo"></a>
+          Photo by <a href="{{ flight.planespotters_photo_page | e }}">{{ flight.planespotters_photographer | e }}</a> / Planespotters.net
+          {% else %}
           ![]({{ image }})
+          {% endif %}
         {% endif %}
         {% if flight.airline_logo_link %}
           <img src="{{ flight.airline_logo_link | e }}" alt="{{ flight.airline_name }} logo" style="display:none; background:#fff; border:1px solid rgba(0,0,0,.08); border-radius:6px; padding:2px; max-width:180px; height:auto;" onload="if(this.naturalWidth>8 &amp;&amp; this.naturalHeight>8){this.style.display='inline-block'}else{this.style.display='none'}" onerror="this.style.display='none'">
