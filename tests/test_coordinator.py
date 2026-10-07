@@ -134,7 +134,7 @@ class CoordinatorTests(unittest.IsolatedAsyncioTestCase):
         self.coordinator.fr_api.error = RateLimitError()
         self.assertEqual(await self.coordinator._async_update_data(), [])
         self.assertEqual(len(self.coordinator.historic_flights), 1)
-        self.assertEqual(self.coordinator.update_interval, timedelta(seconds=20))
+        self.assertEqual(self.coordinator.update_interval, timedelta(seconds=10))
         await self.coordinator._async_update_data()
         self.assertEqual(len(self.coordinator.historic_flights), 1)
 
@@ -152,11 +152,11 @@ class CoordinatorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.coordinator._async_update_data(), [])
         self.assertEqual(len(self.coordinator.historic_flights), 1)
 
-    async def test_feed_backoff_is_capped_at_five_minutes(self):
+    async def test_repeated_feed_rate_limits_keep_configured_interval(self):
         self.coordinator.fr_api.error = RateLimitError()
         for attempt in range(10):
             self.assertEqual(await self.coordinator._async_update_data(), [])
-        self.assertEqual(self.coordinator.update_interval, timedelta(minutes=5))
+            self.assertEqual(self.coordinator.update_interval, timedelta(seconds=10))
 
     async def test_response_status_code_rate_limit_clears_live_flights(self):
         await self.coordinator._async_update_data()
@@ -166,7 +166,7 @@ class CoordinatorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.coordinator._async_update_data(), [])
         self.assertEqual(len(self.coordinator.historic_flights), 1)
 
-    async def test_successful_feed_resets_backoff(self):
+    async def test_successful_feed_recovers_after_rate_limit(self):
         await self.coordinator._async_update_data()
         self.coordinator.fr_api.error = RateLimitError()
         await self.coordinator._async_update_data()

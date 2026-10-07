@@ -414,12 +414,13 @@ class WhatsThatPlaneCoordinator(DataUpdateCoordinator):
         except Exception as err:
             if _is_rate_limit_error(err):
                 if not self._rate_limited:
-                    _LOGGER.warning("FR24 is rate limiting (HTTP 429); moving unverified live flights to history and backing off polling")
+                    _LOGGER.warning(
+                        "FR24 is rate limiting (HTTP 429); moving unverified live flights to history; "
+                        "next poll uses the configured interval of %s seconds",
+                        self._normal_update_interval.total_seconds(),
+                    )
                 self._archive_flights(list(self.tracked_flights))
                 self._rate_limited = True
-                self.update_interval = min(
-                    self.update_interval * 2,
-                    max(self._normal_update_interval, timedelta(minutes=5)),
-                )
+                self.update_interval = self._normal_update_interval
                 return list(self.tracked_flights.values())
             raise UpdateFailed(f"Error communicating with API: {err}")
