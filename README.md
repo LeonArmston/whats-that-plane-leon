@@ -110,20 +110,6 @@ After configuring the integration, a new sensor named `sensor.visible_flights` w
 
 Flight details are cached for five minutes while live position data continues updating each poll. If a detail request receives HTTP 429, retries for that flight are delayed for three minutes to reduce FlightRadar24 rate limiting.
 
-### Troubleshooting flights that stay overhead
-
-For a circular 2 km area, use `radius_km: 2`, `fov_cone: 360`, and `hold_flight_data_seconds: 0`. The radius is horizontal distance from your configured coordinates, not distance accounting for altitude. On each successful flight-list poll, flights outside that radius or missing from the response are removed from `flights` and moved to `historic_flights`. Removal is subject to the polling interval and the freshness of FlightRadar24's positions, so it is not instantaneous.
-
-Earlier versions kept the previous live flights when the flight-list API returned HTTP 429, even with a zero-second hold, while increasing the polling interval up to five minutes. This could leave a departed plane appearing overhead for minutes, or miss a short flyover during backoff. The integration now moves unverified live flights to history immediately on a flight-list 429, regardless of the hold setting. For the current no-backoff test, flight-list polling stays at the configured `update_interval`, including after repeated 429s. This may increase rate limiting; compare flyover detection and logs before deciding whether to retain it. After a failed request, an empty `flights` list means no currently verified flights, not confirmation that the airspace is empty. The five-minute details cache and three-minute detail-request 429 cooldown remain enabled. A detail-request 429 does not remove a flight whose live position was successfully verified.
-
-After updating the integration, restart Home Assistant. To confirm the cause, check **Settings > System > Logs** for `FR24 is rate limiting (HTTP 429)`. You can also enable debug logging from the integration's menu under **Settings > Devices & services**, reproduce a flyover, then disable debug logging to download the log. In **Developer Tools > States**, inspect `sensor.visible_flights`: its numeric state counts the live `flights` list, while `historic_flights` deliberately retains recently seen aircraft.
-
-Cards showing `historic_flights` should continue to show departed aircraft. An iframe pointing to `globe.adsb.fi` or your ADS-B feeder uses a separate data source and its own display rules; the integration's radius does not filter those maps.
-
-### Development Checks
-
-Run the coordinator regression tests with `python -m unittest discover -s tests -v`. They use mocked Home Assistant and API boundaries and do not contact FlightRadar24 or require a Home Assistant installation.
-
 ## Sensor data model
 
 The sensor exposes three top-level attributes:

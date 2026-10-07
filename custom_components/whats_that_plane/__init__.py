@@ -209,6 +209,8 @@ class WhatsThatPlaneCoordinator(DataUpdateCoordinator):
         self.historic_flights = []
         self._normal_update_interval = update_interval
         self._rate_limited = False
+        self._feed_rate_limit_started_at = None
+        self._feed_rate_limit_failures = 0
 
         super().__init__(
             hass,
@@ -266,6 +268,7 @@ class WhatsThatPlaneCoordinator(DataUpdateCoordinator):
         return lower_bound <= bearing <= upper_bound if lower_bound < upper_bound else bearing >= lower_bound or bearing <= upper_bound
 
     async def _async_update_data(self):
+        poll_started_at = time.monotonic()
         try:
             config = self.config
             your_latitude = config["latitude"]
@@ -285,6 +288,18 @@ class WhatsThatPlaneCoordinator(DataUpdateCoordinator):
             all_flights = await self.hass.async_add_executor_job(
                 self.fr_api.get_flights, None, bounds
             )
+            feed_received_at = time.monotonic()
+            if self._feed_rate_limit_started_at is not None:
+                _LOGGER.info(
+                    "FR24 flight-list feed recovered after %.1f seconds and %s consecutive "
+                    "HTTP 429 responses; received %s flights",
+                    feed_received_at - self._feed_rate_limit_started_at,
+                    self._feed_rate_limit_failures,
+                    len(all_flights),
+                )
+            self._feed_rate_limit_started_at = None
+            self._feed_rate_limit_failures = 0
+            self._rate_limited = False
 
             all_flights_map = {flight.id: flight for flight in all_flights if flight.id}
             currently_visible_ids = set()
@@ -408,17 +423,37 @@ class WhatsThatPlaneCoordinator(DataUpdateCoordinator):
             self._archive_flights(expired_flight_ids)
 
             self.update_interval = self._normal_update_interval
-            self._rate_limited = False
+            _LOGGER.debug(
+                "FR24 poll completed in %.1f seconds (flight list %.1f seconds): "
+                "received=%s visible=%s held=%s archived=%s; interval=%.1f seconds",
+                time.monotonic() - poll_started_at,
+                feed_received_at - poll_started_at,
+                len(all_flights),
+                len(currently_visible_ids),
+                len(self.tracked_flights) - len(currently_visible_ids),
+                len(expired_flight_ids),
+                self.update_interval.total_seconds(),
+            )
             return list(self.tracked_flights.values())
 
         except Exception as err:
             if _is_rate_limit_error(err):
+                rate_limited_at = time.monotonic()
                 if not self._rate_limited:
+                    self._feed_rate_limit_started_at = rate_limited_at
                     _LOGGER.warning(
                         "FR24 is rate limiting (HTTP 429); moving unverified live flights to history; "
                         "next poll uses the configured interval of %s seconds",
                         self._normal_update_interval.total_seconds(),
                     )
+                self._feed_rate_limit_failures += 1
+                _LOGGER.debug(
+                    "FR24 flight-list still rate limited after %.1f seconds "
+                    "(%s consecutive HTTP 429 responses); failed poll took %.1f seconds",
+                    rate_limited_at - self._feed_rate_limit_started_at,
+                    self._feed_rate_limit_failures,
+                    rate_limited_at - poll_started_at,
+                )
                 self._archive_flights(list(self.tracked_flights))
                 self._rate_limited = True
                 self.update_interval = self._normal_update_interval

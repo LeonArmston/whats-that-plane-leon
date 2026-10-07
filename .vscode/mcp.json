@@ -1,0 +1,24 @@
+{
+	"servers": {
+		"homeassistant": {
+			"type": "http",
+			"url": "${input:ha-mcp-url}"
+		},
+		"my-mcp-server-dc9de3b5-HA": {
+			"type": "http",
+			"url": "https://ml9pdyxmtgzpoycgbm853ps0otiefe2t.ui.nabu.casa/api/webhook/mcp_92092130e80cf3c8eb7eecbfa09dff73"
+		},
+		"HA": {
+			"url": "https://ml9pdyxmtgzpoycgbm853ps0otiefe2t.ui.nabu.casa/api/webhook/mcp_92092130e80cf3c8eb7eecbfa09dff73",
+			"type": "http"
+		}
+	},
+	"inputs": [
+		{
+			"type": "promptString",
+			"id": "ha-mcp-url",
+			"description": "HA-MCP connect URL",
+			"password": true
+		}
+	]
+}

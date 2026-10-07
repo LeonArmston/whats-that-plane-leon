@@ -175,6 +175,47 @@ class CoordinatorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.coordinator.update_interval, timedelta(seconds=10))
         self.assertFalse(self.coordinator._rate_limited)
 
+    async def test_feed_recovery_logs_duration_and_consecutive_failures(self):
+        self.coordinator.fr_api.error = RateLimitError()
+        with self.assertLogs(__name__, level="INFO") as captured:
+            with patch.object(time, "monotonic", return_value=1000):
+                await self.coordinator._async_update_data()
+            with patch.object(time, "monotonic", return_value=1010):
+                await self.coordinator._async_update_data()
+            self.coordinator.fr_api.error = None
+            with patch.object(time, "monotonic", return_value=1025):
+                await self.coordinator._async_update_data()
+        self.assertEqual(len(captured.records), 2)
+        self.assertEqual(captured.records[0].levelno, logging.WARNING)
+        self.assertEqual(captured.records[1].levelno, logging.INFO)
+        self.assertIn("recovered after 25.0 seconds and 2 consecutive", captured.output[1])
+        self.assertIn("received 1 flights", captured.output[1])
+        self.assertIsNone(self.coordinator._feed_rate_limit_started_at)
+        self.assertEqual(self.coordinator._feed_rate_limit_failures, 0)
+
+    async def test_feed_recovery_timer_restarts_for_next_episode(self):
+        for started_at, recovered_at in [(1000, 1020), (1100, 1105)]:
+            with self.assertLogs(__name__, level="INFO") as captured:
+                self.coordinator.fr_api.error = RateLimitError()
+                with patch.object(time, "monotonic", return_value=started_at):
+                    await self.coordinator._async_update_data()
+                self.coordinator.fr_api.error = None
+                with patch.object(time, "monotonic", return_value=recovered_at):
+                    await self.coordinator._async_update_data()
+            self.assertIn(
+                f"recovered after {recovered_at - started_at:.1f} seconds and 1 consecutive",
+                captured.output[1],
+            )
+
+    async def test_healthy_poll_summary_is_debug_only(self):
+        with self.assertLogs(__name__, level="DEBUG") as captured:
+            await self.coordinator._async_update_data()
+        summary = [record for record in captured.records if "poll completed" in record.getMessage()]
+        self.assertEqual(len(summary), 1)
+        self.assertEqual(summary[0].levelno, logging.DEBUG)
+        self.assertIn("received=1 visible=1 held=0 archived=0", summary[0].getMessage())
+        self.assertFalse(any(record.levelno >= logging.INFO for record in captured.records))
+
     async def test_detail_rate_limit_keeps_confirmed_live_flight(self):
         def rate_limited_details(flight_id):
             raise RateLimitError()
