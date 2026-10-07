@@ -242,6 +242,12 @@ class WhatsThatPlaneCoordinator(DataUpdateCoordinator):
     def _details_retry_allowed(self, flight_info: dict) -> bool:
         return time.time() >= flight_info.get("details_retry_after", 0)
 
+    def _archive_flights(self, flight_ids):
+        for flight_id in flight_ids:
+            self.historic_flights.insert(0, self.tracked_flights.pop(flight_id))
+        historic_max_count = self._config.get("historic_flights_max_count", 0)
+        self.historic_flights = self.historic_flights[:historic_max_count]
+
     def _calculate_bearing(self, your_latitude, your_longitude, flight_latitude, flight_longitude):
         delta_longitude = math.radians(flight_longitude - your_longitude)
         your_latitude = math.radians(your_latitude)
@@ -399,14 +405,7 @@ class WhatsThatPlaneCoordinator(DataUpdateCoordinator):
                         _LOGGER.debug(f"Flight {flight_id} has expired and will be removed.")
                         expired_flight_ids.append(flight_id)
 
-            historic_max_count = self._config.get("historic_flights_max_count", 0)
-            for flight_id in expired_flight_ids:
-                if flight_id in self.tracked_flights:
-                    self.historic_flights.insert(0, self.tracked_flights[flight_id])
-                    del self.tracked_flights[flight_id]
-
-            if len(self.historic_flights) > historic_max_count:
-                self.historic_flights = self.historic_flights[:historic_max_count]
+            self._archive_flights(expired_flight_ids)
 
             self.update_interval = self._normal_update_interval
             self._rate_limited = False
@@ -415,7 +414,8 @@ class WhatsThatPlaneCoordinator(DataUpdateCoordinator):
         except Exception as err:
             if _is_rate_limit_error(err):
                 if not self._rate_limited:
-                    _LOGGER.warning("FR24 is rate limiting (HTTP 429); keeping last flight data and backing off polling")
+                    _LOGGER.warning("FR24 is rate limiting (HTTP 429); moving unverified live flights to history and backing off polling")
+                self._archive_flights(list(self.tracked_flights))
                 self._rate_limited = True
                 self.update_interval = min(
                     self.update_interval * 2,
