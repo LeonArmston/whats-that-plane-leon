@@ -10,7 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, CoreState, Event
 from homeassistant.const import EVENT_HOMEASSISTANT_START
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-from FlightRadar24 import FlightRadar24API
+from FlightRadarAPI import FlightRadar24API
 from geopy.distance import geodesic
 from .const import DOMAIN
 
