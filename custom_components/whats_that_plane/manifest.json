@@ -6,7 +6,7 @@
   "issue_tracker": "https://github.com/LeonArmston/whats-that-plane-leon/issues",
   "codeowners": ["@LeonArmston"],
   "requirements": [
-    "FlightRadarAPI==1.5.3",
+    "FlightRadarAPI==1.6.1",
     "cloudscraper==1.2.71",
     "dpath==2.2.0",
     "geopy==2.4.1",
