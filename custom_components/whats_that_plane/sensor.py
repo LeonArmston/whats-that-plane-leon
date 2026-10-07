@@ -236,10 +236,7 @@ class WhatsThatPlaneSensor(CoordinatorEntity, SensorEntity):
         airline_icao = dpath.util.get(flight, AIRLINE_ICAO, default=None)
         airline_iata = dpath.util.get(flight, AIRLINE_IATA, default=None)
         
-        # Generate airline logo link
-        airline_logo_link = None
-        if airline_icao:
-            airline_logo_link = f"https://www.flightradar24.com/static/images/data/operators/{airline_icao}_logo0.png"
+        airline_logo_link = flight.get('airline_logo_link')
         
         flightradar_link = None
         if flight_id:

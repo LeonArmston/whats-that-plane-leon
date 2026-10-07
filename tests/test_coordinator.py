@@ -7,6 +7,7 @@ import time
 import unittest
 from datetime import timedelta
 from email.utils import parsedate_to_datetime
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -33,12 +34,30 @@ class FakeHass:
         return asyncio.create_task(coroutine, name=name)
 
 
+class FakeImageContent:
+    def __init__(self, body):
+        self.body = body
+
+    async def iter_chunked(self, size):
+        for offset in range(0, len(self.body), size):
+            yield self.body[offset:offset + size]
+
+
+def logo_png(size=(16, 16), color=(0, 100, 150, 255)):
+    from PIL import Image
+
+    buffer = BytesIO()
+    Image.new("RGBA", size, color).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
 class FakePhotoResponse:
-    def __init__(self, payload=None, status=200, headers=None, gate=None):
+    def __init__(self, payload=None, status=200, headers=None, gate=None, body=b""):
         self.payload = payload if payload is not None else {"photos": []}
         self.status = status
         self.headers = headers or {}
         self.gate = gate
+        self.content = FakeImageContent(body)
 
     async def __aenter__(self):
         if self.gate is not None:
@@ -138,7 +157,7 @@ def load_coordinator():
             and not target.id.startswith("_") for target in node.targets
         )
         or isinstance(node, (ast.FunctionDef, ast.ClassDef))
-        and node.name in {"_is_rate_limit_error", "WhatsThatPlaneCoordinator"}
+        and node.name in {"_is_rate_limit_error", "_retry_after_seconds", "_is_valid_airline_logo", "WhatsThatPlaneCoordinator"}
     ]
     exec(compile(ast.Module(body=nodes, type_ignores=[]), str(SOURCE), "exec"), namespace)
     return namespace["WhatsThatPlaneCoordinator"]
@@ -171,6 +190,148 @@ class CoordinatorTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         await self.coordinator.async_cancel_photo_tasks()
+
+    def enable_logo_response(self, *, status=200, headers=None, body=None, gate=None):
+        self.flight.airline_icao = "tst"
+        self.coordinator.hass.photo_session.response = FakePhotoResponse(
+            status=status, headers=headers or {"Content-Type": "image/png"},
+            body=logo_png() if body is None else body, gate=gate,
+        )
+
+    async def test_logo_validation_does_not_block_live_poll(self):
+        gate = asyncio.Event()
+        self.enable_logo_response(gate=gate)
+        data = await asyncio.wait_for(self.coordinator._async_update_data(), timeout=1)
+        self.assertEqual(len(data), 1)
+        self.assertIsNone(data[0]["data"]["airline_logo_link"])
+        task = self.coordinator._airline_logo_tasks["TST"]
+        self.assertFalse(task.done())
+        gate.set()
+        await task
+        self.assertEqual(
+            data[0]["data"]["airline_logo_link"],
+            "https://www.flightradar24.com/static/images/data/operators/TST_logo0.png",
+        )
+        self.assertEqual(self.coordinator.listener_updates, 1)
+
+    async def test_missing_logo_is_hidden_and_cached(self):
+        self.enable_logo_response(status=404, body=b"")
+        await self.coordinator._async_update_data()
+        await self.coordinator._airline_logo_tasks["TST"]
+        self.flight.id = "another-flight"
+        data = await self.coordinator._async_update_data()
+        self.assertIsNone(data[0]["data"]["airline_logo_link"])
+        self.assertEqual(len(self.coordinator.hass.photo_session.calls), 1)
+        self.assertGreater(self.coordinator._airline_logo_cache["TST"]["expires_at"] - time.monotonic(), 6 * 24 * 60 * 60)
+
+    async def test_corrupt_or_placeholder_logos_are_hidden(self):
+        for body in [b"not an image", logo_png(size=(1, 1)), logo_png(color=(0, 0, 0, 0))]:
+            self.coordinator._airline_logo_cache.clear()
+            self.coordinator._airline_logo_next_request_at = 0
+            self.enable_logo_response(body=body)
+            await self.coordinator._async_update_data()
+            await self.coordinator._airline_logo_tasks["TST"]
+            self.assertIsNone(self.coordinator.tracked_flights[self.flight.id]["data"]["airline_logo_link"])
+
+    async def test_html_logo_response_is_hidden(self):
+        self.enable_logo_response(headers={"Content-Type": "text/html"}, body=b"<html>Not found</html>")
+        await self.coordinator._async_update_data()
+        await self.coordinator._airline_logo_tasks["TST"]
+        self.assertIsNone(self.coordinator._airline_logo_cache["TST"]["link"])
+
+    async def test_valid_logo_cache_is_shared_by_airline(self):
+        self.enable_logo_response()
+        await self.coordinator._async_update_data()
+        await self.coordinator._airline_logo_tasks["TST"]
+        self.flight.id = "another-flight"
+        data = await self.coordinator._async_update_data()
+        self.assertTrue(data[0]["data"]["airline_logo_link"])
+        self.assertEqual(len(self.coordinator.hass.photo_session.calls), 1)
+
+    async def test_same_airline_shares_pending_logo_check(self):
+        self.enable_logo_response()
+        other_flight = SimpleNamespace(**vars(self.flight))
+        other_flight.id = "other-flight"
+        self.coordinator.fr_api.flights.append(other_flight)
+        data = await self.coordinator._async_update_data()
+        self.assertEqual(len(self.coordinator._airline_logo_tasks), 1)
+        await self.coordinator._airline_logo_tasks["TST"]
+        self.assertEqual(len(self.coordinator.hass.photo_session.calls), 1)
+        self.assertTrue(all(flight["data"]["airline_logo_link"] for flight in data))
+
+    async def test_oversized_logo_response_is_rejected(self):
+        self.enable_logo_response(body=b"x" * (256 * 1024 + 1))
+        await self.coordinator._async_update_data()
+        await self.coordinator._airline_logo_tasks["TST"]
+        self.assertIsNone(self.coordinator._airline_logo_cache["TST"]["link"])
+
+    async def test_airline_change_does_not_publish_previous_logo(self):
+        gate = asyncio.Event()
+        self.enable_logo_response(gate=gate)
+        await self.coordinator._async_update_data()
+        task = self.coordinator._airline_logo_tasks["TST"]
+        self.flight.airline_icao = "NEW"
+        data = await self.coordinator._async_update_data()
+        gate.set()
+        await task
+        link = data[0]["data"]["airline_logo_link"]
+        self.assertTrue(link is None or "/NEW_logo0.png" in link)
+
+    async def test_logo_transient_error_does_not_affect_flights(self):
+        self.enable_logo_response(status=503)
+        await self.coordinator._async_update_data()
+        await self.coordinator._airline_logo_tasks["TST"]
+        self.assertEqual(len(await self.coordinator._async_update_data()), 1)
+        self.assertEqual(len(self.coordinator.hass.photo_session.calls), 1)
+        self.assertIsNone(self.coordinator._airline_logo_cache["TST"]["link"])
+
+    async def test_retry_after_date_and_invalid_values(self):
+        retry_after = self.coordinator._async_validate_airline_logo.__func__.__globals__["_retry_after_seconds"]
+        with patch.object(time, "time", return_value=0):
+            self.assertEqual(retry_after({"Retry-After": "Thu, 01 Jan 1970 00:30:00 GMT"}, 900), 1800)
+        for value in ["invalid", "NaN", "inf", "-10", ""]:
+            self.assertEqual(retry_after({"Retry-After": value}, 900), 900)
+
+    async def test_logo_arriving_after_exit_enriches_history(self):
+        gate = asyncio.Event()
+        self.enable_logo_response(gate=gate)
+        await self.coordinator._async_update_data()
+        task = self.coordinator._airline_logo_tasks["TST"]
+        self.coordinator.fr_api.flights = []
+        self.assertEqual(await self.coordinator._async_update_data(), [])
+        gate.set()
+        await task
+        self.assertTrue(self.coordinator.historic_flights[0]["data"]["airline_logo_link"])
+        self.assertEqual(self.coordinator.tracked_flights, {})
+
+    async def test_logo_rate_limits_do_not_change_live_polling(self):
+        self.enable_logo_response(status=429, headers={"Retry-After": "1800"})
+        clock = SimpleNamespace(time=time.time, monotonic=lambda: 1000)
+        self.coordinator._async_update_data.__func__.__globals__["time"] = clock
+        await self.coordinator._async_update_data()
+        await self.coordinator._airline_logo_tasks["TST"]
+        self.assertEqual(self.coordinator._airline_logo_retry_after, 2800)
+        self.flight.airline_icao = "NEW"
+        self.assertEqual(len(await self.coordinator._async_update_data()), 1)
+        self.assertEqual(len(self.coordinator.hass.photo_session.calls), 1)
+        self.assertEqual(self.coordinator.update_interval, timedelta(seconds=10))
+        self.assertFalse(self.coordinator._rate_limited)
+
+    async def test_logo_tasks_are_cancelled_on_unload(self):
+        self.enable_logo_response(gate=asyncio.Event())
+        await self.coordinator._async_update_data()
+        task = self.coordinator._airline_logo_tasks["TST"]
+        await self.coordinator.async_cancel_photo_tasks()
+        self.assertTrue(task.cancelled())
+        self.assertEqual(self.coordinator._airline_logo_tasks, {})
+
+    async def test_sensor_only_exposes_verified_logo_link(self):
+        tree = ast.parse(SOURCE.with_name("sensor.py").read_text(encoding="utf-8"))
+        formatter = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "_format_flight_data")
+        assignment = next(node for node in formatter.body if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "airline_logo_link" for target in node.targets))
+        expression = compile(ast.Expression(assignment.value), "sensor.py", "eval")
+        self.assertIsNone(eval(expression, {"flight": {"airline": {"code": {"icao": "TST"}}}}))
+        self.assertEqual(eval(expression, {"flight": {"airline_logo_link": "verified-url"}}), "verified-url")
 
     async def test_photos_are_disabled_by_default(self):
         await self.coordinator._async_update_data()

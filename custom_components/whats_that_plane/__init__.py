@@ -28,6 +28,10 @@ PHOTO_RETRY_COOLDOWN_SECONDS = 3 * 60
 PHOTO_REQUEST_INTERVAL_SECONDS = 0.25
 PHOTO_CACHE_MAX_COUNT = 256
 PHOTO_PENDING_MAX_COUNT = 16
+LOGO_CACHE_TTL_SECONDS = 24 * 60 * 60
+LOGO_MISSING_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
+LOGO_RETRY_COOLDOWN_SECONDS = 15 * 60
+LOGO_MAX_BYTES = 256 * 1024
 ORIGIN_LATITUDE = 'airport/origin/position/latitude'
 ORIGIN_LONGITUDE = 'airport/origin/position/longitude'
 DESTINATION_LATITUDE = 'airport/destination/position/latitude'
@@ -38,6 +42,32 @@ def _is_rate_limit_error(error):
         getattr(error, "code", None) == 429
         or getattr(getattr(error, "response", None), "status_code", None) == 429
     )
+
+def _retry_after_seconds(headers, minimum_seconds):
+    retry_after = headers.get("Retry-After", "")
+    try:
+        retry_seconds = float(retry_after)
+    except (ValueError, TypeError):
+        try:
+            retry_seconds = parsedate_to_datetime(retry_after).timestamp() - time.time()
+        except (ValueError, TypeError, OverflowError):
+            retry_seconds = 0
+    if not math.isfinite(retry_seconds):
+        retry_seconds = 0
+    return max(minimum_seconds, retry_seconds)
+
+def _is_valid_airline_logo(payload):
+    from io import BytesIO
+    from PIL import Image
+
+    try:
+        with Image.open(BytesIO(payload)) as image:
+            if not (8 < image.width <= 2048 and 8 < image.height <= 2048):
+                return False
+            image.load()
+            return image.convert("RGBA").getchannel("A").getbbox() is not None
+    except (OSError, ValueError, Image.DecompressionBombError):
+        return False
 
 def setup_frontend_files(hass: HomeAssistant) -> None:
     source_dir = os.path.join(os.path.dirname(__file__), 'www')
@@ -225,6 +255,11 @@ class WhatsThatPlaneCoordinator(DataUpdateCoordinator):
         self._planespotters_semaphore = asyncio.Semaphore(1)
         self._planespotters_retry_after = 0
         self._planespotters_next_request_at = 0
+        self._airline_logo_cache = {}
+        self._airline_logo_tasks = {}
+        self._airline_logo_semaphore = asyncio.Semaphore(1)
+        self._airline_logo_retry_after = 0
+        self._airline_logo_next_request_at = 0
 
         super().__init__(
             hass,
@@ -305,17 +340,7 @@ class WhatsThatPlaneCoordinator(DataUpdateCoordinator):
                     timeout=10,
                 ) as response:
                     if response.status == 429:
-                        retry_after = response.headers.get("Retry-After", "")
-                        try:
-                            retry_seconds = float(retry_after)
-                        except (ValueError, TypeError):
-                            try:
-                                retry_seconds = parsedate_to_datetime(retry_after).timestamp() - time.time()
-                            except (ValueError, TypeError, OverflowError):
-                                retry_seconds = 0
-                        if not math.isfinite(retry_seconds):
-                            retry_seconds = 0
-                        cache_seconds = max(PHOTO_RETRY_COOLDOWN_SECONDS, retry_seconds)
+                        cache_seconds = _retry_after_seconds(response.headers, PHOTO_RETRY_COOLDOWN_SECONDS)
                         self._planespotters_retry_after = time.monotonic() + cache_seconds
                         _LOGGER.warning(
                             "Planespotters is rate limiting (HTTP 429); pausing photo lookups for %.0f seconds; "
@@ -361,13 +386,100 @@ class WhatsThatPlaneCoordinator(DataUpdateCoordinator):
             if updated:
                 self.async_update_listeners()
 
+    def _schedule_airline_logo(self, flight, flight_info):
+        flight_info["data"]["airline_logo_link"] = None
+        airline_icao = dpath.util.get(flight_info["data"], "airline/code/icao", default=None)
+        airline_icao = airline_icao or getattr(flight, "airline_icao", None)
+        flight_info.pop("logo_icao", None)
+        if not isinstance(airline_icao, str):
+            return
+        airline_icao = airline_icao.strip().upper()
+        if len(airline_icao) != 3 or any(char not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" for char in airline_icao):
+            return
+        flight_info["logo_icao"] = airline_icao
+        cached = self._airline_logo_cache.get(airline_icao)
+        now = time.monotonic()
+        if cached and now < cached["expires_at"]:
+            flight_info["data"]["airline_logo_link"] = cached["link"]
+            return
+        if (
+            now < self._airline_logo_retry_after
+            or airline_icao in self._airline_logo_tasks
+            or len(self._airline_logo_tasks) >= PHOTO_PENDING_MAX_COUNT
+        ):
+            return
+        task = self.hass.async_create_background_task(
+            self._async_validate_airline_logo(airline_icao),
+            f"{DOMAIN}_logo_{airline_icao}",
+        )
+        self._airline_logo_tasks[airline_icao] = task
+        task.add_done_callback(lambda completed: self._airline_logo_tasks.pop(airline_icao, None))
+
+    async def _async_validate_airline_logo(self, airline_icao):
+        async with self._airline_logo_semaphore:
+            if time.monotonic() < self._airline_logo_retry_after:
+                return
+            delay = self._airline_logo_next_request_at - time.monotonic()
+            if delay > 0:
+                await asyncio.sleep(delay)
+            self._airline_logo_next_request_at = time.monotonic() + PHOTO_REQUEST_INTERVAL_SECONDS
+            url = f"https://www.flightradar24.com/static/images/data/operators/{airline_icao}_logo0.png"
+            link = None
+            cache_seconds = LOGO_RETRY_COOLDOWN_SECONDS
+            try:
+                session = async_get_clientsession(self.hass)
+                async with session.get(
+                    url,
+                    headers={"User-Agent": "WhatsThatPlaneHA (https://github.com/LeonArmston/whats-that-plane-leon)"},
+                    timeout=10,
+                ) as response:
+                    if response.status in (404, 410):
+                        cache_seconds = LOGO_MISSING_CACHE_TTL_SECONDS
+                    elif response.status in (403, 429):
+                        cache_seconds = _retry_after_seconds(response.headers, LOGO_RETRY_COOLDOWN_SECONDS)
+                        self._airline_logo_retry_after = time.monotonic() + cache_seconds
+                        _LOGGER.debug(
+                            "Airline logo endpoint returned HTTP %s; pausing logo checks for %.0f seconds; "
+                            "live flight polling is unaffected",
+                            response.status, cache_seconds,
+                        )
+                    else:
+                        response.raise_for_status()
+                        if response.status == 200:
+                            if response.headers.get("Content-Type", "").lower().startswith("image/"):
+                                payload = bytearray()
+                                async for chunk in response.content.iter_chunked(16 * 1024):
+                                    payload.extend(chunk)
+                                    if len(payload) > LOGO_MAX_BYTES:
+                                        raise ValueError("Airline logo response exceeds size limit")
+                                if await self.hass.async_add_executor_job(_is_valid_airline_logo, bytes(payload)):
+                                    link = url
+                            cache_seconds = LOGO_CACHE_TTL_SECONDS if link else LOGO_MISSING_CACHE_TTL_SECONDS
+            except Exception as err:
+                _LOGGER.debug("Could not validate airline logo for %s: %s", airline_icao, err)
+
+            if airline_icao not in self._airline_logo_cache and len(self._airline_logo_cache) >= PHOTO_CACHE_MAX_COUNT:
+                self._airline_logo_cache.pop(next(iter(self._airline_logo_cache)))
+            self._airline_logo_cache[airline_icao] = {
+                "link": link,
+                "expires_at": time.monotonic() + cache_seconds,
+            }
+            updated = False
+            for flight_info in list(self.tracked_flights.values()) + self.historic_flights:
+                if flight_info.get("logo_icao") == airline_icao:
+                    flight_info["data"]["airline_logo_link"] = link
+                    updated = True
+            if updated:
+                self.async_update_listeners()
+
     async def async_cancel_photo_tasks(self):
-        tasks = list(self._planespotters_tasks.values())
+        tasks = list(self._planespotters_tasks.values()) + list(self._airline_logo_tasks.values())
         for task in tasks:
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
         self._planespotters_tasks.clear()
+        self._airline_logo_tasks.clear()
 
     def _archive_flights(self, flight_ids):
         for flight_id in flight_ids:
@@ -538,6 +650,7 @@ class WhatsThatPlaneCoordinator(DataUpdateCoordinator):
                     
                     self.tracked_flights[flight_id]["last_seen"] = time.time()
                     self._schedule_planespotters_photo(flight, flight_info)
+                    self._schedule_airline_logo(flight, flight_info)
 
             expired_flight_ids = []
             for flight_id, flight_info in self.tracked_flights.items():

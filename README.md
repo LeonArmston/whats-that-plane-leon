@@ -115,6 +115,8 @@ Enable **Use Planespotters aircraft photos** during setup or in the integration'
 
 The existing FlightRadar24 image attributes remain unchanged. Updated dashboard examples below prefer `planespotters_photo_link` when available and otherwise use FlightRadar24 images. Existing custom cards need to use the new attribute and display `planespotters_photographer` with a link to `planespotters_photo_page`; enabling the option alone does not change an existing card. Background results also enrich retained historic flights without making them live again.
 
+Airline logos are checked automatically in the background. `airline_logo_link` remains null until an image is verified, and stays null for missing, corrupt, tiny, or fully transparent images. Valid logos are cached in memory for 24 hours, missing logos for seven days, and transient failures for 15 minutes. Cards should render a logo only when `airline_logo_link` is present; logo checks do not delay live polling or require the Planespotters option.
+
 ## Sensor data model
 
 The sensor exposes three top-level attributes:
@@ -160,7 +162,7 @@ Every entry in `flights` and `historic_flights` can expose the following fields,
 | `airline_name` | Airline name. |
 | `airline_iata` | Airline IATA code. |
 | `airline_icao` | Airline ICAO code. |
-| `airline_logo_link` | Derived FlightRadar24 airline logo URL based on the ICAO code. |
+| `airline_logo_link` | Verified FlightRadar24 airline logo URL, or null while unchecked, missing, invalid, or temporarily unavailable. |
 | `aircraft_model` | Aircraft model name. |
 | `aircraft_type` | Aircraft type code. |
 | `aircraft_category` | Derived aircraft category, currently `Helicopter` or `Airplane`, based on callsign, model, and type code matching. |
